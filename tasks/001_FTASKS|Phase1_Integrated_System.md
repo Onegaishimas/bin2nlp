@@ -1,0 +1,297 @@
+# Task List: Phase 1 Integrated System Implementation
+## Multi-Platform Binary Analysis Engine + RESTful API Interface
+
+This task list implements the Phase 1 Integrated System as defined in:
+- **Feature PRDs:** `001_FPRD|Multi-Platform_Binary_Analysis_Engine.md` and `002_FPRD|RESTful_API_Interface.md`
+- **Technical Design:** `001_FTDD|Phase1_Integrated_System.md`
+- **Implementation Guide:** `001_FTID|Phase1_Integrated_System.md`
+
+**Implementation Strategy:** Feature-vertical slicing with bottom-up layer construction, following the architecture established in the ADR with FastAPI, Redis caching, and radare2 integration.
+
+## Relevant Files
+
+- `src/models/shared/base.py` - Base data models and common abstractions (implemented)
+- `src/models/shared/enums.py` - Shared enumerations for analysis types, statuses, formats (implemented)
+- `src/models/analysis/config.py` - Analysis configuration and request models
+- `src/models/analysis/results.py` - Analysis result structures and response models
+- `src/models/analysis/files.py` - File metadata and binary file representation models
+- `src/models/api/analysis.py` - API analysis request/response models
+- `src/models/api/jobs.py` - Job management API models
+- `src/models/api/auth.py` - Authentication and rate limiting models
+- `src/core/config.py` - Application configuration and environment settings
+- `src/core/exceptions.py` - Custom exception hierarchy for error handling
+- `src/core/logging.py` - Structured logging configuration
+- `src/cache/base.py` - Redis connection management and base cache operations
+- `src/cache/job_queue.py` - Job queue implementation with Redis backend
+- `src/cache/result_cache.py` - Analysis result caching with TTL management
+- `src/cache/rate_limiter.py` - API rate limiting implementation
+- `src/cache/session.py` - Session and temporary data management
+- `src/analysis/engines/base.py` - Abstract analysis engine interface
+- `src/analysis/engines/radare2.py` - radare2 integration and binary analysis implementation
+- `src/analysis/engines/file_parser.py` - File format detection and validation
+- `src/analysis/engines/security.py` - Security pattern detection engine
+- `src/analysis/processors/job_processor.py` - Main job processing orchestrator
+- `src/analysis/processors/result_builder.py` - Analysis result compilation
+- `src/analysis/processors/error_handler.py` - Analysis error handling
+- `src/analysis/workers/analysis_worker.py` - Background analysis worker process
+- `src/analysis/workers/health_checker.py` - Worker health monitoring
+- `src/api/main.py` - FastAPI application setup and configuration
+- `src/api/routes/health.py` - Health check and system status endpoints
+- `src/api/routes/auth.py` - Authentication and API key validation endpoints
+- `src/api/routes/upload.py` - File upload and pre-signed URL endpoints
+- `src/api/routes/analysis.py` - Analysis submission and retrieval endpoints
+- `src/api/routes/jobs.py` - Job management and status endpoints
+- `src/api/middleware/auth.py` - Authentication middleware
+- `src/api/middleware/rate_limit.py` - Rate limiting middleware
+- `src/api/middleware/logging.py` - Request/response logging middleware
+- `src/api/middleware/cors.py` - CORS handling middleware
+- `src/api/dependencies/redis.py` - Redis dependency injection
+- `src/api/dependencies/services.py` - Service layer dependency injection
+- `src/api/dependencies/validation.py` - Custom validators and dependencies
+- `tests/unit/models/test_*.py` - Unit tests for all model classes
+- `tests/unit/analysis/test_*.py` - Unit tests for analysis engine components
+- `tests/unit/api/test_*.py` - Unit tests for API endpoints and logic
+- `tests/integration/test_analysis_workflow.py` - End-to-end analysis workflow tests
+- `tests/integration/test_api_integration.py` - API integration with analysis engine tests
+- `tests/performance/test_analysis_performance.py` - Analysis performance benchmarking
+- `tests/performance/test_api_load.py` - API load testing and performance validation
+- `requirements.txt` - Python dependencies
+- `docker-compose.yml` - Multi-container development environment
+- `Dockerfile` - Application container definition
+- `pytest.ini` - Testing configuration
+- `pyproject.toml` - Project configuration and tool settings
+
+### Notes
+
+- Tests follow pytest conventions with `test_[module]_[scenario]` naming
+- Use `pytest tests/unit/ -v` for unit tests, `pytest tests/integration/ -v` for integration tests
+- Analysis engine tests use mocked radare2 for unit testing, real radare2 for integration
+- API tests use FastAPI TestClient for endpoint testing
+- Performance tests require actual binary files and benchmarking infrastructure
+
+## Tasks
+
+- [ ] 1.0 Foundation Layer Implementation (Models + Core Infrastructure)
+  - [ ] 1.1 Create shared base models and enumerations (`src/models/shared/`)
+    - [x] 1.1.1 Create `src/models/shared/__init__.py` with module exports
+    - [x] 1.1.2 Implement `base.py` with BaseModel, TimestampedModel classes using Pydantic
+    - [x] 1.1.3 Create `enums.py` with JobStatus, AnalysisDepth, FileFormat, Platform enums
+    - [x] 1.1.4 Add validation methods and string representations to base classes
+  - [ ] 1.2 Implement analysis domain models (`src/models/analysis/`)
+    - [ ] 1.2.1 Create `config.py` with AnalysisConfig, AnalysisRequest classes
+    - [ ] 1.2.2 Implement `results.py` with AnalysisResult, SecurityFindings, FunctionInfo classes
+    - [ ] 1.2.3 Create `files.py` with FileMetadata, BinaryFile, ValidationResult classes
+    - [ ] 1.2.4 Add field validators and custom serialization methods
+  - [ ] 1.3 Create API request/response models (`src/models/api/`)
+    - [ ] 1.3.1 Implement `analysis.py` with AnalysisSubmissionRequest, AnalysisSummaryResponse
+    - [ ] 1.3.2 Create `jobs.py` with JobCreationRequest, JobStatusResponse, JobListResponse
+    - [ ] 1.3.3 Implement `auth.py` with APIKeyRequest, RateLimitInfo, ErrorResponse
+    - [ ] 1.3.4 Add OpenAPI documentation annotations and examples
+  - [ ] 1.4 Set up core configuration and exception handling (`src/core/`)
+    - [ ] 1.4.1 Create `config.py` with Settings class using pydantic-settings
+    - [ ] 1.4.2 Implement `exceptions.py` with BinaryAnalysisException hierarchy
+    - [ ] 1.4.3 Add `utils.py` with file validation, hash generation, sanitization functions
+    - [ ] 1.4.4 Create configuration validation and environment variable handling
+  - [ ] 1.5 Configure structured logging system
+    - [ ] 1.5.1 Implement `src/core/logging.py` with structlog configuration
+    - [ ] 1.5.2 Add correlation ID generation and context propagation
+    - [ ] 1.5.3 Configure log formatters for development and production
+    - [ ] 1.5.4 Set up log filtering and sensitive data redaction
+  - [ ] 1.6 Create comprehensive unit tests for all models
+    - [ ] 1.6.1 Create `tests/unit/models/shared/test_base.py` with BaseModel tests
+    - [ ] 1.6.2 Implement `tests/unit/models/shared/test_enums.py` for enum validation
+    - [ ] 1.6.3 Add analysis model tests in `tests/unit/models/analysis/`
+    - [ ] 1.6.4 Create API model tests in `tests/unit/models/api/`
+  - [ ] 1.7 Set up project configuration files (requirements.txt, pytest.ini, pyproject.toml)
+    - [ ] 1.7.1 Create `requirements.txt` with core dependencies (fastapi, pydantic, redis, r2pipe)
+    - [ ] 1.7.2 Set up `pytest.ini` with test configuration and markers
+    - [ ] 1.7.3 Configure `pyproject.toml` with black, isort, mypy settings
+    - [ ] 1.7.4 Add development dependencies in separate requirements-dev.txt
+
+- [ ] 2.0 Cache Layer Implementation (Redis Integration)
+  - [ ] 2.1 Implement Redis connection management and base cache operations
+    - [ ] 2.1.1 Create `src/cache/base.py` with RedisClient class using aioredis
+    - [ ] 2.1.2 Implement connection pooling with retry logic and health checks
+    - [ ] 2.1.3 Add basic cache operations (get, set, delete, exists) with error handling
+    - [ ] 2.1.4 Create Redis configuration management with environment variables
+  - [ ] 2.2 Create job queue system with Redis backend
+    - [ ] 2.2.1 Implement `src/cache/job_queue.py` with JobQueue class
+    - [ ] 2.2.2 Add job enqueueing with priority levels and metadata
+    - [ ] 2.2.3 Implement job dequeuing with atomic operations and worker assignment
+    - [ ] 2.2.4 Create job status tracking and progress updates
+  - [ ] 2.3 Implement analysis result caching with TTL management
+    - [ ] 2.3.1 Create `src/cache/result_cache.py` with ResultCache class
+    - [ ] 2.3.2 Implement cache key generation with file hash and config parameters
+    - [ ] 2.3.3 Add TTL-based expiration with configurable time periods
+    - [ ] 2.3.4 Create cache invalidation patterns for analysis updates
+  - [ ] 2.4 Build rate limiting system using Redis counters
+    - [ ] 2.4.1 Implement `src/cache/rate_limiter.py` with RateLimiter class
+    - [ ] 2.4.2 Create sliding window rate limiting with Redis sorted sets
+    - [ ] 2.4.3 Add burst allowance tracking and reset mechanisms
+    - [ ] 2.4.4 Implement rate limit checking with remaining quota calculation
+  - [ ] 2.5 Add session and temporary data management
+    - [ ] 2.5.1 Create `src/cache/session.py` with SessionManager class
+    - [ ] 2.5.2 Implement upload session tracking with pre-signed URLs
+    - [ ] 2.5.3 Add temporary file metadata storage with automatic cleanup
+    - [ ] 2.5.4 Create session expiration and cleanup background tasks
+  - [ ] 2.6 Create unit tests for all cache components
+    - [ ] 2.6.1 Create `tests/unit/cache/test_base.py` with Redis connection tests
+    - [ ] 2.6.2 Implement `tests/unit/cache/test_job_queue.py` with mocked Redis
+    - [ ] 2.6.3 Add cache and rate limiter tests with Redis mock
+    - [ ] 2.6.4 Create session management tests with time-based scenarios
+  - [ ] 2.7 Set up integration tests with real Redis instance
+    - [ ] 2.7.1 Create `tests/integration/test_redis_integration.py`
+    - [ ] 2.7.2 Test end-to-end job queue operations with concurrent workers
+    - [ ] 2.7.3 Validate cache performance and TTL behavior
+    - [ ] 2.7.4 Test rate limiting accuracy under load
+
+- [ ] 3.0 Binary Analysis Engine Implementation (radare2 Integration)
+  - [ ] 3.1 Implement file format detection and validation system
+    - [ ] 3.1.1 Create `src/analysis/processors/format_detector.py` with FormatDetector class
+    - [ ] 3.1.2 Implement binary header parsing for PE, ELF, Mach-O formats
+    - [ ] 3.1.3 Add file size and integrity validation with corruption detection
+    - [ ] 3.1.4 Create format confidence scoring and fallback detection
+  - [ ] 3.2 Create radare2 integration layer with r2pipe
+    - [ ] 3.2.1 Implement `src/analysis/r2_integration.py` with R2Session class
+    - [ ] 3.2.2 Add r2pipe connection management with timeout and retry logic
+    - [ ] 3.2.3 Create command execution wrapper with error handling
+    - [ ] 3.2.4 Implement r2 session cleanup and resource management
+  - [ ] 3.3 Build function analysis and extraction processor
+    - [ ] 3.3.1 Create `src/analysis/processors/function_analyzer.py` with FunctionAnalyzer class
+    - [ ] 3.3.2 Implement function discovery using r2 analysis commands
+    - [ ] 3.3.3 Extract function metadata (address, size, calls, imports)
+    - [ ] 3.3.4 Add function signature detection and calling convention analysis
+  - [ ] 3.4 Implement security pattern detection scanner
+    - [ ] 3.4.1 Create `src/analysis/processors/security_scanner.py` with SecurityScanner class
+    - [ ] 3.4.2 Implement network operation pattern detection (sockets, HTTP)
+    - [ ] 3.4.3 Add file system operation scanning (file I/O, registry access)
+    - [ ] 3.4.4 Create suspicious behavior detection (code injection, process manipulation)
+  - [ ] 3.5 Create string extraction and categorization processor
+    - [ ] 3.5.1 Implement `src/analysis/processors/string_extractor.py` with StringExtractor class
+    - [ ] 3.5.2 Extract ASCII/Unicode strings with context and location
+    - [ ] 3.5.3 Categorize strings (URLs, file paths, credentials, configuration)
+    - [ ] 3.5.4 Add string filtering and significance scoring
+  - [ ] 3.6 Integrate all processors into main analysis engine
+    - [ ] 3.6.1 Create `src/analysis/engine.py` with BinaryAnalysisEngine class
+    - [ ] 3.6.2 Implement analysis workflow coordination and processor orchestration
+    - [ ] 3.6.3 Add configuration-based analysis depth and focus area selection
+    - [ ] 3.6.4 Create result aggregation and confidence scoring
+  - [ ] 3.7 Add comprehensive error handling and timeout management
+    - [ ] 3.7.1 Implement analysis timeout with graceful cancellation
+    - [ ] 3.7.2 Add r2 crash recovery and session restart logic
+    - [ ] 3.7.3 Create partial result recovery for failed analysis steps
+    - [ ] 3.7.4 Add detailed error logging with context and debugging information
+  - [ ] 3.8 Create unit tests with mocked radare2 dependencies
+    - [ ] 3.8.1 Create `tests/unit/analysis/test_format_detector.py` with mock files
+    - [ ] 3.8.2 Implement `tests/unit/analysis/test_r2_integration.py` with r2pipe mocks
+    - [ ] 3.8.3 Add processor tests with mocked r2 responses
+    - [ ] 3.8.4 Create engine tests with full processor mocking
+  - [ ] 3.9 Build integration tests with real radare2 and sample binaries
+    - [ ] 3.9.1 Create `tests/integration/test_analysis_engine.py` with sample binaries
+    - [ ] 3.9.2 Test complete analysis workflow with various file formats
+    - [ ] 3.9.3 Validate analysis accuracy with known binary samples
+    - [ ] 3.9.4 Test error handling with corrupted and malformed files
+
+- [ ] 4.0 RESTful API Implementation (FastAPI Endpoints)
+  - [ ] 4.1 Set up FastAPI application with middleware and dependencies
+    - [ ] 4.1.1 Create `src/api/main.py` with FastAPI app initialization
+    - [ ] 4.1.2 Implement `src/api/dependencies.py` with dependency injection setup
+    - [ ] 4.1.3 Create `src/api/middleware.py` with CORS, logging, and error handling
+    - [ ] 4.1.4 Configure OpenAPI documentation settings and metadata
+  - [ ] 4.2 Implement authentication and API key validation system
+    - [ ] 4.2.1 Create API key validation dependency with Redis lookup
+    - [ ] 4.2.2 Implement usage quota tracking and enforcement
+    - [ ] 4.2.3 Add API key generation and management utilities
+    - [ ] 4.2.4 Create authentication error handling and responses
+  - [ ] 4.3 Create health check and system status endpoints
+    - [ ] 4.3.1 Implement `src/api/routers/health.py` with health check endpoints
+    - [ ] 4.3.2 Add Redis connectivity and analysis engine health checks
+    - [ ] 4.3.3 Create system metrics endpoint with service status
+    - [ ] 4.3.4 Add supported file formats and configuration info endpoints
+  - [ ] 4.4 Build analysis submission and result retrieval endpoints
+    - [ ] 4.4.1 Create `src/api/routers/analysis.py` with analysis endpoints
+    - [ ] 4.4.2 Implement POST /api/v1/analyze with file upload and validation
+    - [ ] 4.4.3 Add GET /api/v1/analyze/{id} for result retrieval with caching
+    - [ ] 4.4.4 Create detailed result endpoints (functions, security, strings)
+  - [ ] 4.5 Implement job management endpoints for asynchronous operations
+    - [ ] 4.5.1 Create `src/api/routers/jobs.py` with job management endpoints
+    - [ ] 4.5.2 Implement job creation, status polling, and result retrieval
+    - [ ] 4.5.3 Add job listing with filtering and pagination
+    - [ ] 4.5.4 Create job cancellation and cleanup endpoints
+  - [ ] 4.6 Add file upload handling with size validation and pre-signed URLs
+    - [ ] 4.6.1 Implement direct file upload for small files with multipart/form-data
+    - [ ] 4.6.2 Create pre-signed URL generation for large files
+    - [ ] 4.6.3 Add file validation (size, format, integrity) before processing
+    - [ ] 4.6.4 Implement temporary file cleanup and management
+  - [ ] 4.7 Integrate rate limiting middleware with Redis backend
+    - [ ] 4.7.1 Create rate limiting middleware using Redis counters
+    - [ ] 4.7.2 Implement per-API-key rate limiting with burst allowance
+    - [ ] 4.7.3 Add rate limit headers and HTTP 429 responses
+    - [ ] 4.7.4 Create rate limit bypass for system administrators
+  - [ ] 4.8 Create comprehensive API documentation with OpenAPI
+    - [ ] 4.8.1 Add Pydantic model documentation and examples
+    - [ ] 4.8.2 Create endpoint descriptions with request/response examples
+    - [ ] 4.8.3 Add authentication documentation and API key usage
+    - [ ] 4.8.4 Include error codes and troubleshooting information
+  - [ ] 4.9 Build unit tests for all API endpoints using FastAPI TestClient
+    - [ ] 4.9.1 Create `tests/unit/api/test_analysis.py` with endpoint tests
+    - [ ] 4.9.2 Implement `tests/unit/api/test_jobs.py` with job management tests
+    - [ ] 4.9.3 Add authentication and middleware tests
+    - [ ] 4.9.4 Create health check and documentation endpoint tests
+  - [ ] 4.10 Create integration tests for complete API workflows
+    - [ ] 4.10.1 Implement `tests/integration/test_api_workflows.py`
+    - [ ] 4.10.2 Test complete file upload to analysis result workflow
+    - [ ] 4.10.3 Validate asynchronous job processing end-to-end
+    - [ ] 4.10.4 Test rate limiting and authentication integration
+
+- [ ] 5.0 Integration and Production Readiness (Testing + Deployment)
+  - [ ] 5.1 Create end-to-end workflow tests covering file upload to result retrieval
+    - [ ] 5.1.1 Implement `tests/integration/test_complete_workflows.py`
+    - [ ] 5.1.2 Test small file synchronous analysis workflow
+    - [ ] 5.1.3 Test large file asynchronous analysis with job polling
+    - [ ] 5.1.4 Validate error handling across all system boundaries
+  - [ ] 5.2 Build performance tests for analysis engine with realistic binary files
+    - [ ] 5.2.1 Create `tests/performance/test_analysis_performance.py`
+    - [ ] 5.2.2 Collect sample binaries (PE, ELF, Mach-O) for testing
+    - [ ] 5.2.3 Benchmark analysis times against PRD targets (30s, 5min, 20min)
+    - [ ] 5.2.4 Test memory usage and resource cleanup under load
+  - [ ] 5.3 Implement API load testing with concurrent request simulation
+    - [ ] 5.3.1 Create `tests/performance/test_api_load.py` with concurrent clients
+    - [ ] 5.3.2 Test API throughput targets (1000 req/min sustained, 2000 req/min burst)
+    - [ ] 5.3.3 Validate rate limiting effectiveness under load
+    - [ ] 5.3.4 Test system behavior under overload conditions
+  - [ ] 5.4 Set up Docker containerization for all components
+    - [ ] 5.4.1 Create `Dockerfile` for API application with multi-stage build
+    - [ ] 5.4.2 Create analysis worker container with radare2 installation
+    - [ ] 5.4.3 Configure Redis container with persistence and backup
+    - [ ] 5.4.4 Set up shared volumes for temporary file processing
+  - [ ] 5.5 Create docker-compose configuration for local development
+    - [ ] 5.5.1 Create `docker-compose.yml` with all services and networking
+    - [ ] 5.5.2 Configure environment variables and secrets management
+    - [ ] 5.5.3 Add development overrides in `docker-compose.override.yml`
+    - [ ] 5.5.4 Create initialization scripts for database and cache setup
+  - [ ] 5.6 Configure container health checks and monitoring
+    - [ ] 5.6.1 Add health check endpoints to all containers
+    - [ ] 5.6.2 Configure Docker health checks with appropriate timeouts
+    - [ ] 5.6.3 Set up container restart policies and dependency ordering
+    - [ ] 5.6.4 Add monitoring for container resource usage and performance
+  - [ ] 5.7 Implement graceful shutdown and resource cleanup
+    - [ ] 5.7.1 Add signal handlers for graceful API shutdown
+    - [ ] 5.7.2 Implement job queue drain and worker termination
+    - [ ] 5.7.3 Add temporary file cleanup on shutdown
+    - [ ] 5.7.4 Create database connection cleanup and cache flushing
+  - [ ] 5.8 Add comprehensive error logging and monitoring integration
+    - [ ] 5.8.1 Configure structured logging for all components
+    - [ ] 5.8.2 Add error aggregation and alerting thresholds
+    - [ ] 5.8.3 Implement performance metrics collection and reporting
+    - [ ] 5.8.4 Create debugging and troubleshooting documentation
+  - [ ] 5.9 Create deployment documentation and operational procedures
+    - [ ] 5.9.1 Write installation and setup documentation
+    - [ ] 5.9.2 Create operational runbooks for common scenarios
+    - [ ] 5.9.3 Document backup and recovery procedures
+    - [ ] 5.9.4 Add troubleshooting guide with common issues and solutions
+  - [ ] 5.10 Validate system meets all PRD performance and reliability requirements
+    - [ ] 5.10.1 Run comprehensive test suite and verify 90% test coverage
+    - [ ] 5.10.2 Validate all performance targets from both Feature PRDs
+    - [ ] 5.10.3 Test error handling and recovery scenarios
+    - [ ] 5.10.4 Document system limitations and known issues for production
