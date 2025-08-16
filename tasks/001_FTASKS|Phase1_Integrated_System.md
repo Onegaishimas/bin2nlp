@@ -158,11 +158,11 @@ This task list implements the Phase 1 Integrated System as defined in:
     - [x] 3.2.2 Add r2pipe connection management with timeout and retry logic
     - [x] 3.2.3 Create command execution wrapper with error handling
     - [x] 3.2.4 Implement r2 session cleanup and resource management
-  - [ ] 3.3 Build function analysis and extraction processor
-    - [ ] 3.3.1 Create `src/analysis/processors/function_analyzer.py` with FunctionAnalyzer class
-    - [ ] 3.3.2 Implement function discovery using r2 analysis commands
-    - [ ] 3.3.3 Extract function metadata (address, size, calls, imports)
-    - [ ] 3.3.4 Add function signature detection and calling convention analysis
+  - [x] 3.3 Build function analysis and extraction processor
+    - [x] 3.3.1 Create `src/analysis/processors/function_analyzer.py` with FunctionAnalyzer class
+    - [x] 3.3.2 Implement function discovery using r2 analysis commands
+    - [x] 3.3.3 Extract function metadata (address, size, calls, imports)
+    - [x] 3.3.4 Add function signature detection and calling convention analysis
   - [ ] 3.4 Implement security pattern detection scanner
     - [ ] 3.4.1 Create `src/analysis/processors/security_scanner.py` with SecurityScanner class
     - [ ] 3.4.2 Implement network operation pattern detection (sockets, HTTP)
