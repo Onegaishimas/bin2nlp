@@ -153,11 +153,11 @@ This task list implements the Phase 1 Integrated System as defined in:
     - [x] 3.1.2 Implement binary header parsing for PE, ELF, Mach-O formats
     - [x] 3.1.3 Add file size and integrity validation with corruption detection
     - [x] 3.1.4 Create format confidence scoring and fallback detection
-  - [ ] 3.2 Create radare2 integration layer with r2pipe
-    - [ ] 3.2.1 Implement `src/analysis/r2_integration.py` with R2Session class
-    - [ ] 3.2.2 Add r2pipe connection management with timeout and retry logic
-    - [ ] 3.2.3 Create command execution wrapper with error handling
-    - [ ] 3.2.4 Implement r2 session cleanup and resource management
+  - [x] 3.2 Create radare2 integration layer with r2pipe
+    - [x] 3.2.1 Implement `src/analysis/engines/r2_integration.py` with R2Session class
+    - [x] 3.2.2 Add r2pipe connection management with timeout and retry logic
+    - [x] 3.2.3 Create command execution wrapper with error handling
+    - [x] 3.2.4 Implement r2 session cleanup and resource management
   - [ ] 3.3 Build function analysis and extraction processor
     - [ ] 3.3.1 Create `src/analysis/processors/function_analyzer.py` with FunctionAnalyzer class
     - [ ] 3.3.2 Implement function discovery using r2 analysis commands
