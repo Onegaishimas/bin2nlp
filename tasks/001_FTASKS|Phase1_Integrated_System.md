@@ -18,14 +18,15 @@ This task list implements the Phase 1 Integrated System as defined in:
 - `src/models/api/analysis.py` - API analysis request/response models (implemented)
 - `src/models/api/jobs.py` - Job management API models (implemented)
 - `src/models/api/auth.py` - Authentication and rate limiting models (implemented)
-- `src/core/config.py` - Application configuration and environment settings
-- `src/core/exceptions.py` - Custom exception hierarchy for error handling
+- `src/core/config.py` - Application configuration and environment settings (implemented with enhanced validation)
+- `src/core/exceptions.py` - Custom exception hierarchy for error handling (implemented)
+- `src/core/utils.py` - File validation, hash generation, sanitization functions (implemented with Magika integration)
 - `src/core/logging.py` - Structured logging configuration
 - `src/cache/base.py` - Redis connection management and base cache operations (implemented)
 - `src/cache/job_queue.py` - Job queue implementation with Redis backend (implemented)
 - `src/cache/result_cache.py` - Analysis result caching with TTL management (implemented)
 - `src/cache/rate_limiter.py` - API rate limiting implementation (implemented)
-- `src/cache/session.py` - Session and temporary data management (implemented)
+- `src/cache/session.py` - Session and temporary data management (implemented with Magika validation)
 - `src/analysis/engines/base.py` - Abstract analysis engine interface
 - `src/analysis/engines/radare2.py` - radare2 integration and binary analysis implementation
 - `src/analysis/engines/file_parser.py` - File format detection and validation
@@ -88,26 +89,26 @@ This task list implements the Phase 1 Integrated System as defined in:
     - [x] 1.3.2 Create `jobs.py` with JobCreationRequest, JobStatusResponse, JobListResponse
     - [x] 1.3.3 Implement `auth.py` with APIKeyRequest, RateLimitInfo, ErrorResponse
     - [x] 1.3.4 Add OpenAPI documentation annotations and examples
-  - [ ] 1.4 Set up core configuration and exception handling (`src/core/`)
+  - [x] 1.4 Set up core configuration and exception handling (`src/core/`)
     - [x] 1.4.1 Create `config.py` with Settings class using pydantic-settings
     - [x] 1.4.2 Implement `exceptions.py` with BinaryAnalysisException hierarchy
     - [x] 1.4.3 Add `utils.py` with file validation, hash generation, sanitization functions
-    - [ ] 1.4.4 Create configuration validation and environment variable handling
-  - [ ] 1.5 Configure structured logging system
-    - [ ] 1.5.1 Implement `src/core/logging.py` with structlog configuration
-    - [ ] 1.5.2 Add correlation ID generation and context propagation
-    - [ ] 1.5.3 Configure log formatters for development and production
-    - [ ] 1.5.4 Set up log filtering and sensitive data redaction
+    - [x] 1.4.4 Create configuration validation and environment variable handling
+  - [x] 1.5 Configure structured logging system
+    - [x] 1.5.1 Implement `src/core/logging.py` with structlog configuration
+    - [x] 1.5.2 Add correlation ID generation and context propagation
+    - [x] 1.5.3 Configure log formatters for development and production
+    - [x] 1.5.4 Set up log filtering and sensitive data redaction
   - [ ] 1.6 Create comprehensive unit tests for all models
     - [ ] 1.6.1 Create `tests/unit/models/shared/test_base.py` with BaseModel tests
     - [ ] 1.6.2 Implement `tests/unit/models/shared/test_enums.py` for enum validation
     - [ ] 1.6.3 Add analysis model tests in `tests/unit/models/analysis/`
     - [ ] 1.6.4 Create API model tests in `tests/unit/models/api/`
-  - [ ] 1.7 Set up project configuration files (requirements.txt, pytest.ini, pyproject.toml)
-    - [ ] 1.7.1 Create `requirements.txt` with core dependencies (fastapi, pydantic, redis, r2pipe)
-    - [ ] 1.7.2 Set up `pytest.ini` with test configuration and markers
-    - [ ] 1.7.3 Configure `pyproject.toml` with black, isort, mypy settings
-    - [ ] 1.7.4 Add development dependencies in separate requirements-dev.txt
+  - [x] 1.7 Set up project configuration files (requirements.txt, pytest.ini, pyproject.toml)
+    - [x] 1.7.1 Create `requirements.txt` with core dependencies (fastapi, pydantic, redis, r2pipe, magika)
+    - [x] 1.7.2 Set up `pytest.ini` with test configuration and markers
+    - [x] 1.7.3 Configure `pyproject.toml` with black, isort, mypy settings
+    - [x] 1.7.4 Add development dependencies in separate requirements-dev.txt (via pyproject.toml)
 
 - [x] 2.0 Cache Layer Implementation (Redis Integration)
   - [x] 2.1 Implement Redis connection management and base cache operations
