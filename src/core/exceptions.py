@@ -251,6 +251,22 @@ class CacheException(BinaryAnalysisException):
         self.redis_error = redis_error
 
 
+class CacheConnectionError(CacheException):
+    """Exception raised when Redis connection fails."""
+    
+    def __init__(self, message: str, **kwargs):
+        kwargs['error_code'] = kwargs.get('error_code', 'CACHE_CONNECTION_ERROR')
+        super().__init__(message, **kwargs)
+
+
+class CacheTimeoutError(CacheException):
+    """Exception raised when Redis operations timeout."""
+    
+    def __init__(self, message: str, **kwargs):
+        kwargs['error_code'] = kwargs.get('error_code', 'CACHE_TIMEOUT_ERROR')
+        super().__init__(message, **kwargs)
+
+
 class ProcessingException(BinaryAnalysisException):
     """
     Exception raised during job processing and workflow operations.
