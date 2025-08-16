@@ -99,11 +99,11 @@ This task list implements the Phase 1 Integrated System as defined in:
     - [x] 1.5.2 Add correlation ID generation and context propagation
     - [x] 1.5.3 Configure log formatters for development and production
     - [x] 1.5.4 Set up log filtering and sensitive data redaction
-  - [ ] 1.6 Create comprehensive unit tests for all models
-    - [ ] 1.6.1 Create `tests/unit/models/shared/test_base.py` with BaseModel tests
-    - [ ] 1.6.2 Implement `tests/unit/models/shared/test_enums.py` for enum validation
-    - [ ] 1.6.3 Add analysis model tests in `tests/unit/models/analysis/`
-    - [ ] 1.6.4 Create API model tests in `tests/unit/models/api/`
+  - [x] 1.6 Create comprehensive unit tests for all models
+    - [x] 1.6.1 Create `tests/unit/models/shared/test_base.py` with BaseModel tests
+    - [x] 1.6.2 Implement `tests/unit/models/shared/test_enums.py` for enum validation
+    - [x] 1.6.3 Add analysis model tests in `tests/unit/models/analysis/`
+    - [x] 1.6.4 Create API model tests in `tests/unit/models/api/`
   - [x] 1.7 Set up project configuration files (requirements.txt, pytest.ini, pyproject.toml)
     - [x] 1.7.1 Create `requirements.txt` with core dependencies (fastapi, pydantic, redis, r2pipe, magika)
     - [x] 1.7.2 Set up `pytest.ini` with test configuration and markers
@@ -148,11 +148,11 @@ This task list implements the Phase 1 Integrated System as defined in:
     - [ ] 2.7.4 Test rate limiting accuracy under load
 
 - [ ] 3.0 Binary Analysis Engine Implementation (radare2 Integration)
-  - [ ] 3.1 Implement file format detection and validation system
-    - [ ] 3.1.1 Create `src/analysis/processors/format_detector.py` with FormatDetector class
-    - [ ] 3.1.2 Implement binary header parsing for PE, ELF, Mach-O formats
-    - [ ] 3.1.3 Add file size and integrity validation with corruption detection
-    - [ ] 3.1.4 Create format confidence scoring and fallback detection
+  - [x] 3.1 Implement file format detection and validation system
+    - [x] 3.1.1 Create `src/analysis/processors/format_detector.py` with FormatDetector class
+    - [x] 3.1.2 Implement binary header parsing for PE, ELF, Mach-O formats
+    - [x] 3.1.3 Add file size and integrity validation with corruption detection
+    - [x] 3.1.4 Create format confidence scoring and fallback detection
   - [ ] 3.2 Create radare2 integration layer with r2pipe
     - [ ] 3.2.1 Implement `src/analysis/r2_integration.py` with R2Session class
     - [ ] 3.2.2 Add r2pipe connection management with timeout and retry logic
