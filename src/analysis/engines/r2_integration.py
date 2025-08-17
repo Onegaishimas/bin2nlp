@@ -52,6 +52,7 @@ class R2CommandResult:
     success: bool
     error_message: Optional[str] = None
     retry_count: int = 0
+    session_restarted: bool = False
 
 
 class R2SessionException(BinaryAnalysisException):
@@ -268,59 +269,143 @@ class R2Session:
         return result
     
     async def _execute_with_retry(self, cmd: R2Command) -> R2CommandResult:
-        """Execute command with retry logic."""
+        """Execute command with retry logic and crash recovery (ADR: comprehensive error handling)."""
         last_exception = None
+        session_restart_attempted = False
         
         for attempt in range(self.max_retries + 1):
             try:
-                self._state = R2SessionState.BUSY
+                # Check session health before command execution (ADR: crash recovery)
+                if not await self._check_session_health():
+                    self.logger.warning(
+                        "R2 session unhealthy before command execution",
+                        command=cmd.command,
+                        attempt=attempt + 1,
+                        session_state=self._state.value
+                    )
+                    
+                    if not session_restart_attempted and await self._attempt_session_restart():
+                        session_restart_attempted = True
+                        self.logger.info(
+                            "R2 session restarted successfully", 
+                            command=cmd.command
+                        )
+                    else:
+                        raise BinaryAnalysisException("R2 session is unhealthy and restart failed")
                 
+                self._state = R2SessionState.BUSY
                 start_time = time.time()
                 
                 # Execute command with timeout
                 result = await self._execute_single_command(cmd)
                 
                 execution_time = time.time() - start_time
-                
                 self._state = R2SessionState.READY
+                
+                # ADR: structured logging for success
+                self.logger.info(
+                    "R2 command executed successfully",
+                    command=cmd.command,
+                    execution_time=execution_time,
+                    attempt=attempt + 1,
+                    session_restarted=session_restart_attempted
+                )
                 
                 return R2CommandResult(
                     command=cmd.command,
                     output=result,
                     execution_time=execution_time,
                     success=True,
-                    retry_count=attempt
+                    retry_count=attempt,
+                    session_restarted=session_restart_attempted
                 )
                 
             except asyncio.TimeoutError as e:
                 last_exception = e
+                self._state = R2SessionState.ERROR
+                
                 self.logger.warning(
-                    "Command timeout",
+                    "R2 command timeout",
                     command=cmd.command,
                     attempt=attempt + 1,
                     timeout=cmd.timeout
                 )
-                if attempt >= self.max_retries:
-                    break
-                    
-                # Brief pause before retry
-                await asyncio.sleep(0.5 * (attempt + 1))
+                
+                if attempt < self.max_retries:
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                
+            except (ConnectionError, ProcessLookupError, BrokenPipeError, OSError) as e:
+                # R2 process crash detected (ADR: crash recovery patterns)
+                last_exception = e
+                self._state = R2SessionState.ERROR
+                
+                self.logger.error(
+                    "R2 process crash detected",
+                    command=cmd.command,
+                    attempt=attempt + 1,
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                
+                # Attempt session restart for crash-related errors
+                if attempt < self.max_retries and not session_restart_attempted:
+                    if await self._attempt_session_restart():
+                        session_restart_attempted = True
+                        self.logger.info(
+                            "R2 session restarted after crash",
+                            command=cmd.command
+                        )
+                        # Don't sleep after successful restart
+                        continue
+                    else:
+                        self.logger.error(
+                            "Failed to restart R2 session after crash",
+                            command=cmd.command
+                        )
+                        break
+                
+                if attempt < self.max_retries:
+                    await asyncio.sleep(2.0 * (attempt + 1))  # Longer delay for crash recovery
                 
             except Exception as e:
                 last_exception = e
+                
                 self.logger.warning(
-                    "Command execution failed",
+                    "R2 command execution failed",
                     command=cmd.command,
                     attempt=attempt + 1,
-                    error=str(e)
+                    error=str(e),
+                    error_type=type(e).__name__
                 )
-                if attempt >= self.max_retries:
-                    break
+                
+                # For certain errors, attempt session restart (ADR: intelligent recovery)
+                if (attempt < self.max_retries and 
+                    not session_restart_attempted and
+                    self._should_restart_for_error(e)):
                     
-                # Brief pause before retry
-                await asyncio.sleep(1.0 * (attempt + 1))
+                    if await self._attempt_session_restart():
+                        session_restart_attempted = True
+                        self.logger.info(
+                            "R2 session restarted due to error",
+                            command=cmd.command,
+                            error_type=type(e).__name__
+                        )
+                        continue
+                
+                if attempt < self.max_retries:
+                    await asyncio.sleep(1.0 * (attempt + 1))
         
         self._state = R2SessionState.ERROR
+        
+        # ADR: comprehensive error reporting
+        self.logger.error(
+            "R2 command failed after all retry attempts",
+            command=cmd.command,
+            max_retries=self.max_retries,
+            session_restart_attempted=session_restart_attempted,
+            final_error=str(last_exception),
+            final_error_type=type(last_exception).__name__ if last_exception else "Unknown"
+        )
         
         # Return failed result
         return R2CommandResult(
@@ -329,7 +414,8 @@ class R2Session:
             execution_time=0.0,
             success=False,
             error_message=str(last_exception),
-            retry_count=self.max_retries
+            retry_count=self.max_retries,
+            session_restarted=session_restart_attempted
         )
     
     async def _execute_single_command(self, cmd: R2Command) -> Any:
@@ -552,6 +638,142 @@ class R2Session:
                 self._r2_pipe = None
         except Exception as e:
             self.logger.warning("Error closing r2pipe", error=str(e))
+    
+    async def _check_session_health(self) -> bool:
+        """
+        Check if R2 session is healthy and responsive (ADR: crash recovery).
+        
+        Returns:
+            True if session is healthy, False otherwise
+        """
+        if not self._r2_pipe or self._state in [R2SessionState.ERROR, R2SessionState.CLOSED]:
+            return False
+        
+        try:
+            # Quick health check command
+            loop = asyncio.get_event_loop()
+            
+            def _health_check():
+                try:
+                    # Simple command that should always work
+                    result = self._r2_pipe.cmd("?V")  # Get version
+                    return result is not None
+                except Exception:
+                    return False
+            
+            # Run health check with short timeout
+            is_healthy = await asyncio.wait_for(
+                loop.run_in_executor(None, _health_check),
+                timeout=2.0
+            )
+            
+            if not is_healthy:
+                self.logger.warning(
+                    "R2 session health check failed",
+                    session_id=self._session_id,
+                    state=self._state.value
+                )
+            
+            return is_healthy
+            
+        except Exception as e:
+            self.logger.error(
+                "R2 session health check exception",
+                session_id=self._session_id,
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            return False
+    
+    async def _attempt_session_restart(self) -> bool:
+        """
+        Attempt to restart the R2 session after a crash (ADR: crash recovery).
+        
+        Returns:
+            True if restart was successful, False otherwise
+        """
+        self.logger.info(
+            "Attempting R2 session restart",
+            session_id=self._session_id,
+            file_path=self.file_path
+        )
+        
+        try:
+            # Clean up existing session
+            if self._r2_pipe:
+                try:
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(None, self._close_r2pipe)
+                except Exception as cleanup_error:
+                    self.logger.warning(
+                        "Error during session cleanup before restart",
+                        error=str(cleanup_error)
+                    )
+                finally:
+                    self._r2_pipe = None
+            
+            # Clear command cache as it may be stale
+            self._command_cache.clear()
+            
+            # Reset state
+            self._state = R2SessionState.INITIALIZING
+            
+            # Re-initialize the session
+            await self.initialize()
+            
+            # Verify the restart was successful
+            if await self._check_session_health():
+                self.logger.info(
+                    "R2 session restart successful",
+                    session_id=self._session_id
+                )
+                return True
+            else:
+                self.logger.error(
+                    "R2 session restart failed health check",
+                    session_id=self._session_id
+                )
+                self._state = R2SessionState.ERROR
+                return False
+                
+        except Exception as e:
+            self.logger.error(
+                "R2 session restart failed",
+                session_id=self._session_id,
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            self._state = R2SessionState.ERROR
+            return False
+    
+    def _should_restart_for_error(self, error: Exception) -> bool:
+        """
+        Determine if session restart should be attempted for the given error (ADR: intelligent recovery).
+        
+        Args:
+            error: The exception that occurred
+            
+        Returns:
+            True if restart should be attempted, False otherwise
+        """
+        # Restart for process-related errors
+        restart_error_types = (
+            ConnectionError, ProcessLookupError, BrokenPipeError, OSError,
+            r2pipe.OpenException if hasattr(r2pipe, 'OpenException') else Exception
+        )
+        
+        if isinstance(error, restart_error_types):
+            return True
+        
+        # Restart for certain error messages that indicate process issues
+        error_str = str(error).lower()
+        restart_indicators = [
+            'broken pipe', 'connection lost', 'process not found',
+            'no such process', 'session closed', 'pipe closed',
+            'radare2 crashed', 'r2 not responding'
+        ]
+        
+        return any(indicator in error_str for indicator in restart_indicators)
 
 
 @asynccontextmanager
