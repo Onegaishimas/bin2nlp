@@ -8,11 +8,12 @@ function information, security findings, string extraction, and metadata.
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Union
 from uuid import UUID
+from dataclasses import dataclass
 
 from pydantic import Field, field_validator, computed_field, ConfigDict
 
 from ..shared.base import BaseModel, TimestampedModel
-from ..shared.enums import FileFormat, Platform, AnalysisDepth, AnalysisFocus
+from ..shared.enums import FileFormat, Platform, AnalysisDepth, AnalysisFocus, StringCategory, StringSignificance
 from .serialization import AnalysisModelMixin
 
 
@@ -425,11 +426,213 @@ class SecurityFindings(BaseModel):
         self.overall_risk_score = min(10.0, (total_risk / max_possible_risk) * 10.0)
 
 
+@dataclass
+class StringContext:
+    """Context information for an extracted string."""
+    address: int
+    section_name: Optional[str] = None
+    function_name: Optional[str] = None
+    xrefs_from: List[int] = None
+    xrefs_to: List[int] = None
+    nearby_functions: List[str] = None
+    instruction_context: Optional[str] = None
+    
+    def __post_init__(self):
+        if self.xrefs_from is None:
+            self.xrefs_from = []
+        if self.xrefs_to is None:
+            self.xrefs_to = []
+        if self.nearby_functions is None:
+            self.nearby_functions = []
+
+
+class StringInfo(BaseModel):
+    """
+    Information about a single string extracted during binary analysis.
+    
+    Represents an individual string with its metadata, context, categorization,
+    and significance scoring for analysis prioritization.
+    """
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "value": "https://api.example.com/upload",
+                    "address": 4206656,
+                    "size": 30,
+                    "length": 30,
+                    "encoding": "ascii",
+                    "section": ".rdata",
+                    "type": "ascii",
+                    "categories": ["url", "network_service"],
+                    "significance": "high",
+                    "significance_score": 8.5,
+                    "significance_factors": ["category_max=8.0", "length=0.60", "section_data=2.0"]
+                }
+            ]
+        }
+    )
+    
+    value: str = Field(
+        description="The actual string content"
+    )
+    
+    address: int = Field(
+        description="Memory address where string was found"
+    )
+    
+    size: int = Field(
+        default=0,
+        description="Size of string in bytes"
+    )
+    
+    length: int = Field(
+        description="Length of string in characters"
+    )
+    
+    encoding: str = Field(
+        default="ascii",
+        description="Character encoding (ascii, unicode, utf-16)"
+    )
+    
+    section: str = Field(
+        default="",
+        description="Binary section containing the string"
+    )
+    
+    type: str = Field(
+        default="generic",
+        description="String type from radare2 extraction"
+    )
+    
+    categories: List[StringCategory] = Field(
+        default_factory=list,
+        description="Categorized types for this string"
+    )
+    
+    significance: Optional[StringSignificance] = Field(
+        default=None,
+        description="Significance level for analysis prioritization"
+    )
+    
+    significance_score: float = Field(
+        default=0.0,
+        description="Numeric significance score"
+    )
+    
+    significance_factors: List[str] = Field(
+        default_factory=list,
+        description="Factors contributing to significance score"
+    )
+    
+    context: Optional['StringContext'] = Field(
+        default=None,
+        description="Context information for the string"
+    )
+    
+    @field_validator('value')
+    @classmethod
+    def validate_content(cls, v: str) -> str:
+        """Validate string content."""
+        if not v:
+            raise ValueError("String content cannot be empty")
+        return v
+    
+    @computed_field
+    @property
+    def is_high_priority(self) -> bool:
+        """Check if any categories are high-priority."""
+        return any(cat.is_high_priority() for cat in self.categories)
+    
+    @computed_field
+    @property
+    def hex_address(self) -> str:
+        """Get address in hexadecimal format."""
+        return f"0x{self.address:08x}"
+
+
 class StringExtraction(BaseModel):
     """
-    Information about strings extracted from the binary.
+    Complete string extraction results from binary analysis.
     
-    Contains categorized strings with context and significance analysis.
+    Contains all extracted strings with categorization, significance analysis,
+    and extraction metadata for comprehensive string-based analysis.
+    """
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "total_strings": 245,
+                    "ascii_count": 180,
+                    "unicode_count": 45,
+                    "wide_count": 20,
+                    "strings": [],
+                    "extraction_settings": {
+                        "min_length": 4,
+                        "max_length": 1024,
+                        "include_context": True
+                    }
+                }
+            ]
+        }
+    )
+    
+    total_strings: int = Field(
+        description="Total number of strings extracted"
+    )
+    
+    ascii_count: int = Field(
+        description="Number of ASCII strings found"
+    )
+    
+    unicode_count: int = Field(
+        description="Number of Unicode strings found" 
+    )
+    
+    wide_count: int = Field(
+        description="Number of wide (UTF-16) strings found"
+    )
+    
+    strings: List[StringInfo] = Field(
+        default_factory=list,
+        description="All extracted strings with analysis"
+    )
+    
+    extraction_settings: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Settings used for string extraction"
+    )
+    
+    @computed_field
+    @property
+    def critical_strings(self) -> List[StringInfo]:
+        """Get strings marked as critical significance."""
+        return [s for s in self.strings if s.significance == StringSignificance.CRITICAL]
+    
+    @computed_field
+    @property
+    def high_priority_strings(self) -> List[StringInfo]:
+        """Get strings with high-priority categories."""
+        return [s for s in self.strings if s.is_high_priority]
+    
+    def get_strings_by_category(self, category: StringCategory) -> List[StringInfo]:
+        """Get strings containing a specific category."""
+        return [s for s in self.strings if category in s.categories]
+    
+    def get_strings_by_significance(self, significance: StringSignificance) -> List[StringInfo]:
+        """Get strings with specific significance level."""
+        return [s for s in self.strings if s.significance == significance]
+
+
+# DEPRECATED: Legacy StringExtraction class for backward compatibility
+class LegacyStringExtraction(BaseModel):
+    """
+    DEPRECATED: Legacy string extraction model.
+    
+    This model is maintained for backward compatibility.
+    New code should use StringInfo and StringExtraction models instead.
     """
     
     model_config = ConfigDict(

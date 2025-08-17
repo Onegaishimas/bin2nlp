@@ -92,6 +92,9 @@ class FileFormat(str, Enum):
     MACHO = "macho"     # macOS Mach-O format
     APK = "apk"         # Android Package
     IPA = "ipa"         # iOS Application Package
+    JAVA = "java"       # Java bytecode/JAR files
+    WASM = "wasm"       # WebAssembly modules
+    RAW = "raw"         # Raw binary data
     UNKNOWN = "unknown" # Unrecognized or unsupported format
     
     @classmethod
@@ -223,6 +226,107 @@ class AnalysisFocus(str, Enum):
             self.ALL: "Comprehensive analysis covering all available areas"
         }
         return descriptions.get(self, "Unknown focus area")
+
+
+class StringCategory(str, Enum):
+    """
+    Enumeration for string categorization during binary analysis.
+    
+    Categorizes extracted strings based on content patterns and usage.
+    Used for string filtering, prioritization, and security analysis.
+    """
+    
+    URL = "url"                     # HTTP/HTTPS/FTP URLs
+    DOMAIN = "domain"               # Domain names and IP addresses
+    EMAIL = "email"                 # Email addresses
+    FILE_PATH = "file_path"         # File system paths (Windows, Unix, UNC)
+    REGISTRY = "registry"           # Windows registry keys
+    CREDENTIAL = "credential"       # Password, key, token, auth patterns
+    CONFIGURATION = "configuration" # Configuration keys, INI sections, XML
+    EXECUTABLE = "executable"       # Executable and library names
+    NETWORK_SERVICE = "network_service"  # Network service URLs and protocols
+    FORMAT_STRING = "format_string" # C/Python/.NET format strings
+    COMMAND_LINE = "command_line"   # Command line flags and options
+    GENERIC = "generic"             # Generic printable strings
+    BINARY_DATA = "binary_data"     # Non-printable or binary content
+    
+    @property
+    def description(self) -> str:
+        """Get human-readable description of string category."""
+        descriptions = {
+            self.URL: "Web URLs (HTTP, HTTPS, FTP)",
+            self.DOMAIN: "Domain names, hostnames, and IP addresses",
+            self.EMAIL: "Email addresses",
+            self.FILE_PATH: "File system paths and locations",
+            self.REGISTRY: "Windows registry keys and values",
+            self.CREDENTIAL: "Authentication credentials and security tokens",
+            self.CONFIGURATION: "Configuration parameters and settings",
+            self.EXECUTABLE: "Executable files and library names",
+            self.NETWORK_SERVICE: "Network services and protocol URLs",
+            self.FORMAT_STRING: "String formatting templates",
+            self.COMMAND_LINE: "Command line arguments and flags",
+            self.GENERIC: "General printable text strings",
+            self.BINARY_DATA: "Non-printable or binary content"
+        }
+        return descriptions.get(self, "Unknown string category")
+    
+    @classmethod
+    def get_high_priority_categories(cls) -> List['StringCategory']:
+        """Return categories that typically indicate high-value strings."""
+        return [
+            cls.CREDENTIAL,
+            cls.URL,
+            cls.NETWORK_SERVICE,
+            cls.EMAIL,
+            cls.REGISTRY
+        ]
+    
+    def is_high_priority(self) -> bool:
+        """Check if this category is typically high-priority."""
+        return self in self.get_high_priority_categories()
+
+
+class StringSignificance(str, Enum):
+    """
+    Enumeration for string significance scoring.
+    
+    Represents the relative importance of extracted strings for analysis.
+    Used for filtering and prioritizing strings in analysis workflows.
+    """
+    
+    CRITICAL = "critical"   # Highest significance (credentials, C&C URLs)
+    HIGH = "high"          # High significance (network indicators, registry keys)
+    MEDIUM = "medium"      # Medium significance (file paths, configuration)
+    LOW = "low"           # Low significance (generic strings, common text)
+    NOISE = "noise"       # Minimal significance (repetitive, irrelevant strings)
+    
+    @property
+    def description(self) -> str:
+        """Get human-readable description of significance level."""
+        descriptions = {
+            self.CRITICAL: "Critical for security analysis (credentials, C&C)",
+            self.HIGH: "High importance (network indicators, security-relevant)",
+            self.MEDIUM: "Moderate importance (configuration, file paths)",
+            self.LOW: "Low importance (generic application strings)",
+            self.NOISE: "Minimal importance (repetitive or common strings)"
+        }
+        return descriptions.get(self, "Unknown significance level")
+    
+    @classmethod
+    def get_analysis_priorities(cls) -> List['StringSignificance']:
+        """Return significance levels in analysis priority order."""
+        return [cls.CRITICAL, cls.HIGH, cls.MEDIUM, cls.LOW, cls.NOISE]
+    
+    def get_priority_score(self) -> int:
+        """Get numeric priority score for sorting (higher = more important)."""
+        scores = {
+            self.CRITICAL: 5,
+            self.HIGH: 4,
+            self.MEDIUM: 3,
+            self.LOW: 2,
+            self.NOISE: 1
+        }
+        return scores.get(self, 0)
 
 
 # Valid state transitions for job status management
