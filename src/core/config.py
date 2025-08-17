@@ -6,12 +6,14 @@ validation, and type safety for all application components.
 """
 
 import os
+import sys
+import warnings
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any, Union, Tuple
 from urllib.parse import urlparse
 
-from pydantic import Field, field_validator, computed_field
+from pydantic import Field, field_validator, computed_field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -269,7 +271,7 @@ class SecuritySettings(BaseSettings):
     )
     
     default_rate_limit_per_day: int = Field(
-        default=10000,
+        default=86400,  # 60 per minute * 60 minutes * 24 hours
         ge=100,
         le=1000000,
         description="Default rate limit per day"
@@ -502,8 +504,8 @@ class Settings(BaseSettings):
         return {
             "basic": {
                 "per_minute": 10,
-                "per_hour": 100,
-                "per_day": 1000,
+                "per_hour": 600,
+                "per_day": 14400,
                 "burst": 5
             },
             "standard": {
@@ -514,14 +516,14 @@ class Settings(BaseSettings):
             },
             "premium": {
                 "per_minute": 300,
-                "per_hour": 5000,
-                "per_day": 50000,
+                "per_hour": 18000,
+                "per_day": 432000,
                 "burst": 50
             },
             "enterprise": {
                 "per_minute": 1000,
-                "per_hour": 20000,
-                "per_day": 200000,
+                "per_hour": 60000,
+                "per_day": 1440000,
                 "burst": 100
             },
             "unlimited": {
@@ -676,3 +678,300 @@ LOG_ENABLE_CORRELATION_ID=true
     
     with open(path, 'w') as f:
         f.write(env_content)
+
+
+def check_required_environment_variables() -> Tuple[bool, List[str]]:
+    """
+    Check for required environment variables and system dependencies.
+    
+    Returns:
+        Tuple of (success, list of missing/invalid items)
+    """
+    missing_items = []
+    
+    # Check critical environment variables for production
+    env = os.getenv("ENVIRONMENT", "development")
+    if env == "production":
+        critical_vars = [
+            "REDIS_HOST",
+            "REDIS_PASSWORD",
+            "SECURITY_ENFORCE_HTTPS",
+            "LOG_LEVEL"
+        ]
+        
+        for var in critical_vars:
+            if not os.getenv(var):
+                missing_items.append(f"Environment variable {var} is required in production")
+    
+    # Check system dependencies
+    try:
+        import redis
+    except ImportError:
+        missing_items.append("Redis Python client not installed (pip install redis)")
+    
+    try:
+        import r2pipe
+    except ImportError:
+        missing_items.append("r2pipe not installed (pip install r2pipe)")
+    
+    # Check radare2 availability
+    radare2_cmd = os.getenv("ANALYSIS_RADARE2_COMMAND", "r2")
+    if os.system(f"which {radare2_cmd} >/dev/null 2>&1") != 0:
+        missing_items.append(f"radare2 not found in PATH (command: {radare2_cmd})")
+    
+    # Check temp directory permissions
+    temp_dir = Path(os.getenv("ANALYSIS_TEMP_DIRECTORY", "/tmp/bin2nlp"))
+    try:
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        test_file = temp_dir / ".write_test"
+        test_file.write_text("test")
+        test_file.unlink()
+    except Exception as e:
+        missing_items.append(f"Cannot write to temp directory {temp_dir}: {e}")
+    
+    return len(missing_items) == 0, missing_items
+
+
+def validate_configuration_consistency() -> Tuple[bool, List[str]]:
+    """
+    Validate internal configuration consistency and logical constraints.
+    
+    Returns:
+        Tuple of (success, list of validation errors)
+    """
+    errors = []
+    
+    try:
+        settings = get_settings()
+        
+        # Timeout validation
+        if settings.analysis.default_timeout_seconds > settings.analysis.max_timeout_seconds:
+            errors.append("Default timeout cannot exceed maximum timeout")
+        
+        # Memory validation
+        if settings.analysis.worker_memory_limit_mb < 512:
+            errors.append("Worker memory limit too low (minimum 512MB)")
+        
+        # Port validation
+        if settings.api.port == settings.database.port:
+            errors.append("API and Redis ports cannot be the same")
+        
+        # Rate limit validation
+        rate_limits = settings.get_rate_limits()
+        for tier, limits in rate_limits.items():
+            if tier == "unlimited":
+                continue
+            
+            # Check minute/hour consistency
+            if limits["per_minute"] * 60 > limits["per_hour"]:
+                errors.append(f"Rate limit inconsistency in {tier} tier: "
+                            f"per_minute ({limits['per_minute']}) * 60 > per_hour ({limits['per_hour']})")
+            
+            # Check hour/day consistency
+            if limits["per_hour"] * 24 > limits["per_day"]:
+                errors.append(f"Rate limit inconsistency in {tier} tier: "
+                            f"per_hour ({limits['per_hour']}) * 24 > per_day ({limits['per_day']})")
+        
+        # File size validation
+        max_request_size_mb = settings.api.max_request_size / (1024 * 1024)
+        if max_request_size_mb < settings.analysis.max_file_size_mb:
+            errors.append("API max request size should be >= analysis max file size")
+        
+        # CORS validation for production
+        if settings.is_production and "*" in settings.api.cors_origins:
+            errors.append("Wildcard CORS origins not recommended for production")
+        
+        # HTTPS validation for production
+        if settings.is_production and not settings.security.enforce_https:
+            errors.append("HTTPS should be enforced in production")
+        
+    except Exception as e:
+        errors.append(f"Configuration validation failed: {e}")
+    
+    return len(errors) == 0, errors
+
+
+def detect_configuration_issues() -> Dict[str, List[str]]:
+    """
+    Comprehensive configuration health check.
+    
+    Returns:
+        Dictionary with categories of issues found
+    """
+    issues = {
+        "critical": [],
+        "warnings": [],
+        "recommendations": []
+    }
+    
+    # Check environment variables
+    env_ok, env_issues = check_required_environment_variables()
+    if not env_ok:
+        issues["critical"].extend(env_issues)
+    
+    # Check configuration consistency
+    config_ok, config_errors = validate_configuration_consistency()
+    if not config_ok:
+        issues["critical"].extend(config_errors)
+    
+    # Performance recommendations
+    try:
+        settings = get_settings()
+        
+        # Memory recommendations
+        worker_memory_gb = settings.analysis.worker_memory_limit_mb / 1024
+        if worker_memory_gb < 2:
+            issues["recommendations"].append(
+                f"Consider increasing worker memory limit (current: {worker_memory_gb}GB, recommended: 2GB+)"
+            )
+        
+        # Connection pool recommendations
+        if settings.database.max_connections < 10:
+            issues["recommendations"].append(
+                "Consider increasing Redis connection pool size for better concurrency"
+            )
+        
+        # Cache size recommendations
+        cache_size_gb = settings.cache.max_cache_size_mb / 1024
+        if cache_size_gb < 1:
+            issues["recommendations"].append(
+                f"Consider increasing cache size (current: {cache_size_gb}GB, recommended: 1GB+)"
+            )
+        
+        # Development warnings
+        if settings.is_development:
+            if settings.debug:
+                issues["warnings"].append("Debug mode is enabled - disable in production")
+            
+            if not settings.security.enforce_https:
+                issues["warnings"].append("HTTPS not enforced - ensure this is enabled in production")
+    
+    except Exception as e:
+        issues["critical"].append(f"Failed to analyze configuration: {e}")
+    
+    return issues
+
+
+def create_configuration_report() -> str:
+    """
+    Generate a comprehensive configuration status report.
+    
+    Returns:
+        Formatted report string
+    """
+    report_lines = [
+        "=== bin2nlp Configuration Report ===",
+        ""
+    ]
+    
+    # Basic info
+    try:
+        settings = get_settings()
+        report_lines.extend([
+            f"Environment: {settings.environment}",
+            f"Debug Mode: {settings.debug}",
+            f"Application: {settings.app_name} v{settings.app_version}",
+            ""
+        ])
+    except Exception as e:
+        report_lines.extend([
+            f"ERROR: Failed to load settings: {e}",
+            ""
+        ])
+        return "\n".join(report_lines)
+    
+    # Configuration issues
+    issues = detect_configuration_issues()
+    
+    if issues["critical"]:
+        report_lines.extend([
+            "🚨 CRITICAL ISSUES:",
+            *[f"  - {issue}" for issue in issues["critical"]],
+            ""
+        ])
+    
+    if issues["warnings"]:
+        report_lines.extend([
+            "⚠️  WARNINGS:",
+            *[f"  - {warning}" for warning in issues["warnings"]],
+            ""
+        ])
+    
+    if issues["recommendations"]:
+        report_lines.extend([
+            "💡 RECOMMENDATIONS:",
+            *[f"  - {rec}" for rec in issues["recommendations"]],
+            ""
+        ])
+    
+    if not any(issues.values()):
+        report_lines.extend([
+            "✅ Configuration looks good!",
+            ""
+        ])
+    
+    # Component summary
+    report_lines.extend([
+        "=== Component Configuration ===",
+        f"Redis: {settings.database.host}:{settings.database.port}",
+        f"API Server: {settings.api.host}:{settings.api.port}",
+        f"Worker Memory Limit: {settings.analysis.worker_memory_limit_mb}MB",
+        f"Max File Size: {settings.analysis.max_file_size_mb}MB",
+        f"Cache TTL: {settings.cache.analysis_result_ttl_seconds}s",
+        f"Rate Limit: {settings.security.default_rate_limit_per_minute}/min",
+        ""
+    ])
+    
+    return "\n".join(report_lines)
+
+
+def validate_and_warn() -> bool:
+    """
+    Validate configuration and print warnings for development use.
+    
+    Returns:
+        True if configuration is valid, False if critical issues found
+    """
+    issues = detect_configuration_issues()
+    
+    if issues["critical"]:
+        print("🚨 CRITICAL CONFIGURATION ISSUES:", file=sys.stderr)
+        for issue in issues["critical"]:
+            print(f"  - {issue}", file=sys.stderr)
+        return False
+    
+    if issues["warnings"]:
+        for warning in issues["warnings"]:
+            warnings.warn(f"Configuration warning: {warning}")
+    
+    return True
+
+
+def load_and_validate_settings() -> Settings:
+    """
+    Load settings with comprehensive validation and error handling.
+    
+    Returns:
+        Validated Settings instance
+        
+    Raises:
+        ValueError: If configuration is invalid
+        RuntimeError: If critical dependencies are missing
+    """
+    # Check environment and dependencies first
+    env_ok, env_issues = check_required_environment_variables()
+    if not env_ok:
+        raise RuntimeError("Critical environment issues:\n" + "\n".join(f"  - {issue}" for issue in env_issues))
+    
+    # Load settings
+    try:
+        settings = Settings()
+    except ValidationError as e:
+        raise ValueError(f"Configuration validation failed:\n{e}")
+    
+    # Validate configuration consistency
+    config_ok, config_errors = validate_configuration_consistency()
+    if not config_ok:
+        raise ValueError("Configuration consistency errors:\n" + "\n".join(f"  - {error}" for error in config_errors))
+    
+    return settings

@@ -252,16 +252,28 @@ def validate_job_transition(from_status: JobStatus, to_status: JobStatus) -> boo
 
 def get_file_format_from_extension(filename: str) -> FileFormat:
     """
-    Attempt to determine file format from filename extension.
+    DEPRECATED: Attempt to determine file format from filename extension.
     
-    Note: This is a heuristic and should be confirmed with proper file analysis.
+    ⚠️  WARNING: This function is deprecated and violates our ADR standards.
+    Use Magika-based file detection instead via src/core/utils.py
+    
+    This function should only be used as a fallback when file content
+    is not available. Prefer get_file_format_from_content() when possible.
     
     Args:
         filename: Name of the file including extension
         
     Returns:
-        Likely file format based on extension
+        Likely file format based on extension (UNRELIABLE)
     """
+    import warnings
+    warnings.warn(
+        "get_file_format_from_extension() is deprecated. "
+        "Use Magika-based detection via src/core/utils.py instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    
     filename_lower = filename.lower()
     
     if filename_lower.endswith(('.exe', '.dll', '.sys', '.scr')):
@@ -276,3 +288,39 @@ def get_file_format_from_extension(filename: str) -> FileFormat:
         return FileFormat.IPA
     else:
         return FileFormat.UNKNOWN
+
+
+def get_file_format_from_magika_label(magika_label: str) -> FileFormat:
+    """
+    Convert Magika content type label to FileFormat enum.
+    
+    This is the PREFERRED method for file format detection per ADR standards.
+    
+    Args:
+        magika_label: Content type label from Magika detection
+        
+    Returns:
+        FileFormat enum value based on Magika detection
+    """
+    label_lower = magika_label.lower()
+    
+    # Map Magika labels to our FileFormat enum
+    magika_to_format = {
+        'pe': FileFormat.PE,
+        'msdos': FileFormat.PE,
+        'com': FileFormat.PE,
+        'dll': FileFormat.PE,
+        'elf': FileFormat.ELF,
+        'macho': FileFormat.MACHO,
+        'dex': FileFormat.APK,  # DEX files are Android
+        'apk': FileFormat.APK,
+        'dmg': FileFormat.MACHO,  # DMG typically contains macOS apps
+        'jar': FileFormat.JAVA,
+        'java': FileFormat.JAVA,
+        'wasm': FileFormat.WASM,
+        'binary': FileFormat.RAW,
+        'executable': FileFormat.RAW,  # Generic executable
+        'sharedlib': FileFormat.ELF,   # Shared libraries are typically ELF
+    }
+    
+    return magika_to_format.get(label_lower, FileFormat.UNKNOWN)

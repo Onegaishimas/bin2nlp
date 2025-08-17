@@ -17,6 +17,8 @@ from enum import Enum
 from ..core.config import Settings, get_settings
 from ..core.exceptions import CacheException
 from ..core.logging import get_logger
+from ..core.utils import validate_binary_file_content, detect_file_format
+from ..models.shared.enums import FileFormat
 from .base import RedisClient
 
 
@@ -46,7 +48,7 @@ class UploadSession:
     created_at: float
     expires_at: float
     max_file_size: int
-    allowed_extensions: List[str]
+    allowed_formats: List[FileFormat]  # CHANGED: Use FileFormat enum instead of extensions
     metadata: Dict[str, Any]
     upload_progress: int = 0
     completed_at: Optional[float] = None
@@ -177,12 +179,12 @@ class SessionManager:
         content_type: str,
         api_key_id: Optional[str] = None,
         max_file_size: Optional[int] = None,
-        allowed_extensions: Optional[List[str]] = None,
+        allowed_formats: Optional[List[FileFormat]] = None,
         ttl_seconds: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> UploadSession:
         """
-        Create a new upload session.
+        Create a new upload session with Magika-based validation (ADR STANDARDIZED).
         
         Args:
             filename: Original filename
@@ -190,7 +192,7 @@ class SessionManager:
             content_type: MIME content type
             api_key_id: API key identifier
             max_file_size: Maximum allowed file size
-            allowed_extensions: List of allowed file extensions
+            allowed_formats: List of allowed FileFormat enums (replaces extensions)
             ttl_seconds: Session TTL in seconds
             metadata: Additional session metadata
             
@@ -212,7 +214,7 @@ class SessionManager:
             ttl = ttl_seconds or self.DEFAULT_UPLOAD_SESSION_TTL
             expires_at = current_time + ttl
             max_size = max_file_size or self.settings.get_max_file_size_bytes()
-            extensions = allowed_extensions or ['.exe', '.dll', '.so', '.bin', '.elf']
+            formats = allowed_formats or [FileFormat.PE, FileFormat.ELF, FileFormat.MACHO, FileFormat.RAW]
             
             # Generate pre-signed URL (placeholder - would integrate with storage service)
             presigned_url = f"https://storage.example.com/upload/{upload_id}"
@@ -230,7 +232,7 @@ class SessionManager:
                 created_at=current_time,
                 expires_at=expires_at,
                 max_file_size=max_size,
-                allowed_extensions=extensions,
+                allowed_formats=formats,
                 metadata=metadata or {}
             )
             
@@ -828,3 +830,71 @@ class SessionManager:
             await redis._client.hincrby(self.SESSION_STATS_KEY, stat_name, count)
         except Exception:
             pass  # Don't fail operations due to stats errors
+    
+    async def validate_uploaded_file(self, session_id: str, file_content: bytes) -> Dict[str, Any]:
+        """
+        Validate uploaded file content using Magika (ADR STANDARDIZED).
+        
+        This method replaces extension-based validation with ML-based detection.
+        
+        Args:
+            session_id: Upload session ID
+            file_content: Raw file content bytes
+            
+        Returns:
+            Dictionary with validation results
+            
+        Raises:
+            CacheException: If validation fails or session not found
+        """
+        try:
+            # Get upload session
+            session = await self.get_upload_session(session_id)
+            if not session:
+                raise CacheException(f"Upload session not found: {session_id}")
+            
+            # Use Magika to validate file content
+            is_binary, detected_type, file_format = validate_binary_file_content(
+                file_content, 
+                session.filename
+            )
+            
+            # Check if detected format is allowed
+            format_allowed = file_format in session.allowed_formats
+            
+            # Check file size
+            size_ok = len(file_content) <= session.max_file_size
+            
+            validation_result = {
+                'session_id': session_id,
+                'filename': session.filename,
+                'file_size': len(file_content),
+                'detected_type': detected_type,
+                'detected_format': file_format,
+                'is_binary': is_binary,
+                'format_allowed': format_allowed,
+                'size_ok': size_ok,
+                'allowed_formats': [fmt.value for fmt in session.allowed_formats],
+                'max_file_size': session.max_file_size,
+                'validation_passed': is_binary and format_allowed and size_ok,
+                'validation_method': 'magika',
+                'validation_timestamp': time.time()
+            }
+            
+            if not validation_result['validation_passed']:
+                errors = []
+                if not is_binary:
+                    errors.append(f"File is not a binary executable (detected: {detected_type})")
+                if not format_allowed:
+                    errors.append(f"Format {file_format.value} not allowed (allowed: {[f.value for f in session.allowed_formats]})")
+                if not size_ok:
+                    errors.append(f"File size {len(file_content)} exceeds limit {session.max_file_size}")
+                
+                validation_result['errors'] = errors
+            
+            return validation_result
+            
+        except CacheException:
+            raise
+        except Exception as e:
+            raise CacheException(f"File validation failed: {str(e)}")

@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 from magika import Magika
 
 from .exceptions import ValidationException, FileException
+from ..models.shared.enums import FileFormat, get_file_format_from_magika_label
 
 
 # File validation constants
@@ -704,3 +705,118 @@ def create_secure_temp_filename(prefix: str = 'bin2nlp_', suffix: str = '.tmp') 
     """
     random_part = secrets.token_urlsafe(16)
     return f"{prefix}{random_part}{suffix}"
+
+
+# ADR STANDARDIZED FUNCTIONS - Use these for all file detection
+# =============================================================
+
+def detect_file_format(file_content: bytes, filename: Optional[str] = None) -> FileFormat:
+    """
+    Detect file format using Magika ML-based detection (ADR STANDARDIZED).
+    
+    This is the preferred method for file format detection per ADR standards.
+    Falls back to filename-based detection only if Magika fails.
+    
+    Args:
+        file_content: Raw file content bytes
+        filename: Optional filename for fallback detection
+        
+    Returns:
+        FileFormat enum value based on detection
+    """
+    magika = Magika()
+    
+    try:
+        # Primary detection: Use Magika ML-based detection
+        result = magika.identify_bytes(file_content)
+        detected_format = get_file_format_from_magika_label(result.output.ct_label)
+        
+        # If Magika gives us a definitive result, use it
+        if detected_format != FileFormat.UNKNOWN:
+            return detected_format
+            
+    except Exception:
+        # If Magika fails, fall back to filename-based detection
+        pass
+    
+    # Fallback: Use filename-based detection (if available)
+    if filename:
+        from ..models.shared.enums import get_file_format_from_extension
+        return get_file_format_from_extension(filename)
+    
+    return FileFormat.UNKNOWN
+
+
+def validate_binary_file_content(file_content: bytes, filename: Optional[str] = None) -> Tuple[bool, str, FileFormat]:
+    """
+    Validate file content for binary analysis using Magika (ADR STANDARDIZED).
+    
+    Args:
+        file_content: Raw file content bytes
+        filename: Optional filename for additional context
+        
+    Returns:
+        Tuple of (is_valid_binary, detected_type_label, file_format_enum)
+    """
+    magika = Magika()
+    
+    try:
+        result = magika.identify_bytes(file_content)
+        content_type = result.output.ct_label
+        file_format = get_file_format_from_magika_label(content_type)
+        
+        # Check if it's a supported binary type
+        is_binary = content_type.lower() in BINARY_CONTENT_TYPES
+        
+        return is_binary, content_type, file_format
+        
+    except Exception as e:
+        # If Magika fails, return unknown status
+        return False, f"detection_failed: {str(e)}", FileFormat.UNKNOWN
+
+
+def get_file_info_with_magika(file_path: Union[str, Path]) -> Dict[str, Any]:
+    """
+    Get comprehensive file information using Magika detection (ADR STANDARDIZED).
+    
+    Args:
+        file_path: Path to the file to analyze
+        
+    Returns:
+        Dictionary with file information including Magika-based detection
+    """
+    file_path = Path(file_path)
+    magika = Magika()
+    
+    try:
+        with open(file_path, 'rb') as f:
+            content = f.read()
+        
+        # Use Magika for content detection
+        result = magika.identify_bytes(content)
+        content_type = result.output.ct_label
+        file_format = get_file_format_from_magika_label(content_type)
+        
+        # Generate file hash
+        sha256_hash = hashlib.sha256(content).hexdigest()
+        
+        return {
+            'path': str(file_path),
+            'filename': file_path.name,
+            'size_bytes': len(content),
+            'sha256': sha256_hash,
+            'detected_type': content_type,
+            'confidence': result.output.score,
+            'file_format': file_format,
+            'is_binary': content_type.lower() in BINARY_CONTENT_TYPES,
+            'is_executable': content_type.lower() in EXECUTABLE_CONTENT_TYPES,
+            'detection_method': 'magika'
+        }
+        
+    except Exception as e:
+        return {
+            'path': str(file_path),
+            'filename': file_path.name if file_path.exists() else 'unknown',
+            'error': str(e),
+            'detection_method': 'failed'
+        }

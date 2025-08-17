@@ -12,6 +12,7 @@ redis[hiredis]>=5.0.0
 
 # Binary analysis
 r2pipe>=1.8.0
+magika>=0.6.0
 
 # Logging
 structlog>=23.2.0

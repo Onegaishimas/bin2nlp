@@ -14,7 +14,8 @@ from .enums import (
     AnalysisFocus,
     JOB_STATE_TRANSITIONS,
     validate_job_transition,
-    get_file_format_from_extension
+    get_file_format_from_extension,  # DEPRECATED - use get_file_format_from_magika_label
+    get_file_format_from_magika_label
 )
 
 __all__ = [
@@ -32,5 +33,6 @@ __all__ = [
     # Utilities
     "JOB_STATE_TRANSITIONS",
     "validate_job_transition", 
-    "get_file_format_from_extension",
+    "get_file_format_from_extension",  # DEPRECATED
+    "get_file_format_from_magika_label",
 ]

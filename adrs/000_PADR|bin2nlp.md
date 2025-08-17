@@ -174,15 +174,99 @@ from src.core.config import settings
 
 ### Coding Patterns
 
+**Pydantic Model Patterns (REQUIRED):**
+```python
+# All models must use Pydantic BaseModel
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional, List
+
+class AnalysisRequest(BaseModel):
+    """Analysis request with comprehensive validation."""
+    file_hash: str = Field(..., min_length=64, max_length=64, description="SHA-256 file hash")
+    analysis_depth: AnalysisDepth = Field(default=AnalysisDepth.STANDARD)
+    timeout_seconds: int = Field(default=300, ge=30, le=3600)
+    
+    @field_validator('file_hash')
+    @classmethod
+    def validate_hash(cls, v: str) -> str:
+        if not re.match(r'^[a-fA-F0-9]{64}$', v):
+            raise ValueError('Must be valid SHA-256 hash')
+        return v.lower()
+
+# Configuration models must use pydantic-settings
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class ComponentSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="COMPONENT_",
+        case_sensitive=False
+    )
+    
+    host: str = Field(default="localhost")
+    port: int = Field(default=8000, ge=1024, le=65535)
+```
+
+**File Detection Patterns (REQUIRED):**
+```python
+# Must use Magika for all file type detection
+from magika import Magika
+
+magika = Magika()
+
+async def validate_binary_file(file_content: bytes) -> Tuple[bool, str]:
+    """Validate file is a supported binary type using Magika."""
+    result = magika.identify_bytes(file_content)
+    file_type = result.output.ct_label
+    
+    # Check against supported binary types
+    is_binary = file_type in SUPPORTED_BINARY_TYPES
+    return is_binary, file_type
+
+# Never rely on file extensions alone
+def get_file_info(file_path: Path) -> Dict[str, Any]:
+    """Get comprehensive file information."""
+    with open(file_path, 'rb') as f:
+        content = f.read()
+    
+    # Use Magika, not file extension
+    result = magika.identify_bytes(content)
+    
+    return {
+        'detected_type': result.output.ct_label,
+        'confidence': result.output.score,
+        'size_bytes': len(content),
+        'sha256': hashlib.sha256(content).hexdigest()
+    }
+```
+
+**Configuration Access Patterns (REQUIRED):**
+```python
+# Always use centralized configuration
+from src.core.config import get_settings
+
+async def some_service_function():
+    """Service function accessing configuration."""
+    settings = get_settings()
+    
+    # Access hierarchical settings
+    redis_url = settings.database.url
+    max_file_size = settings.analysis.max_file_size_mb
+    api_timeout = settings.api.request_timeout
+    
+    # Use helper methods when available
+    file_size_bytes = settings.get_max_file_size_bytes()
+    rate_limits = settings.get_rate_limits()
+```
+
 **API Design Patterns:**
 ```python
-# Consistent endpoint structure
+# Consistent endpoint structure with Pydantic models
 @router.post("/analyze", response_model=AnalysisResponse)
 async def analyze_binary(
-    request: AnalysisRequest,
+    request: AnalysisRequest,  # Must be Pydantic model
     background_tasks: BackgroundTasks,
     cache: Redis = Depends(get_redis)
-) -> AnalysisResponse:
+) -> AnalysisResponse:  # Must be Pydantic model
     """Analyze binary file with configurable depth."""
     # Implementation
 ```
@@ -284,10 +368,12 @@ async def analysis_exception_handler(request: Request, exc: BinaryAnalysisExcept
 **Core Dependencies:**
 - `fastapi[all]`: Web framework with all optional dependencies
 - `uvicorn[standard]`: ASGI server with performance optimizations
-- `pydantic`: Data validation and serialization
+- `pydantic`: Data validation and serialization (STANDARDIZED)
+- `pydantic-settings`: Environment configuration management (STANDARDIZED)
 - `redis`: Cache and session storage
 - `r2pipe`: radare2 Python integration
 - `httpx`: Async HTTP client for Ollama integration
+- `magika`: File type detection and content analysis (STANDARDIZED)
 
 **Development Dependencies:**
 - `pytest`: Testing framework
@@ -302,6 +388,66 @@ async def analysis_exception_handler(request: Request, exc: BinaryAnalysisExcept
 - `radare2`: Binary analysis engine
 - `ollama`: Local LLM server
 
+### Standardized Technology Decisions
+
+**Pydantic Ecosystem (STANDARDIZED)**
+
+**Decision**: Use Pydantic for all data modeling, validation, and configuration management across the entire application.
+
+**Rationale:**
+- **Consistency**: Single validation framework reduces complexity and learning curve
+- **Type Safety**: Built-in type hints and runtime validation prevent data errors
+- **Performance**: Compiled validation is faster than manual validation code
+- **Integration**: Native FastAPI integration for automatic API documentation
+- **Configuration**: Pydantic-settings provides robust environment variable handling
+
+**Usage Standards:**
+```python
+# All data models inherit from BaseModel
+class AnalysisRequest(BaseModel):
+    file_hash: str = Field(..., min_length=32, max_length=128)
+    analysis_depth: AnalysisDepth = Field(default=AnalysisDepth.STANDARD)
+    
+# All configuration uses pydantic-settings
+class Settings(BaseSettings):
+    redis_url: str = Field(..., env="REDIS_URL")
+    model_config = SettingsConfigDict(env_file=".env")
+```
+
+**Magika for File Detection (STANDARDIZED)**
+
+**Decision**: Use Google's Magika for all file type detection and content analysis tasks.
+
+**Rationale:**
+- **Accuracy**: Superior to traditional file extension or magic number detection
+- **ML-Based**: Uses machine learning for more intelligent file type classification
+- **Security**: More reliable than user-provided MIME types or file extensions
+- **Performance**: Fast inference suitable for API workloads
+- **Maintenance**: Google-maintained with regular model updates
+
+**Usage Standards:**
+```python
+# Standardized file detection pattern
+from magika import Magika
+magika = Magika()
+
+async def detect_file_type(file_content: bytes) -> str:
+    """Detect file type using Magika ML-based detection."""
+    result = magika.identify_bytes(file_content)
+    return result.output.ct_label
+```
+
+**Configuration Management (STANDARDIZED)**
+
+**Decision**: All configuration management must use the enhanced validation system in `src/core/config.py`.
+
+**Standards:**
+- Environment variables with proper validation and type conversion
+- Comprehensive configuration health checks before application startup
+- Hierarchical settings structure (database, api, security, etc.)
+- Built-in configuration consistency validation
+- CLI tools for configuration debugging and validation
+
 ### Package Selection Criteria
 
 1. **Maintenance**: Active development and community support
@@ -309,6 +455,7 @@ async def analysis_exception_handler(request: Request, exc: BinaryAnalysisExcept
 3. **Performance**: Suitable for production API workloads
 4. **Security**: Regular security updates and vulnerability management
 5. **License**: Compatible with commercial use (MIT, Apache, BSD)
+6. **Standardization**: Prefer libraries that align with our standardized choices
 
 ### Version Management Strategy
 
@@ -691,5 +838,5 @@ The decisions made here should guide all subsequent feature development and ensu
 **Document Status:** ✅ Complete - Ready for feature development planning  
 **Next Document:** Feature PRD creation using `@instruct/003_create-feature-prd.md`  
 **Related Documents:** `000_PPRD|bin2nlp.md` (Project PRD)  
-**Last Updated:** 2025-08-15  
-**Document Version:** 1.0
+**Last Updated:** 2025-08-16  
+**Document Version:** 1.1 - Added Standardized Technology Decisions (Pydantic, Magika, Configuration)
