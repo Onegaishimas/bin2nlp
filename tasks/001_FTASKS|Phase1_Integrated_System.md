@@ -169,16 +169,16 @@ This task list implements the Phase 1 Integrated System as defined in:
     - [x] 3.4.2 Implement network operation pattern detection (sockets, HTTP)
     - [x] 3.4.3 Add file system operation scanning (file I/O, registry access)
     - [x] 3.4.4 Create suspicious behavior detection (code injection, process manipulation)
-  - [ ] 3.5 Create string extraction and categorization processor
-    - [ ] 3.5.1 Implement `src/analysis/processors/string_extractor.py` with StringExtractor class
-    - [ ] 3.5.2 Extract ASCII/Unicode strings with context and location
-    - [ ] 3.5.3 Categorize strings (URLs, file paths, credentials, configuration)
-    - [ ] 3.5.4 Add string filtering and significance scoring
-  - [ ] 3.6 Integrate all processors into main analysis engine
-    - [ ] 3.6.1 Create `src/analysis/engine.py` with BinaryAnalysisEngine class
-    - [ ] 3.6.2 Implement analysis workflow coordination and processor orchestration
-    - [ ] 3.6.3 Add configuration-based analysis depth and focus area selection
-    - [ ] 3.6.4 Create result aggregation and confidence scoring
+  - [x] 3.5 Create string extraction and categorization processor
+    - [x] 3.5.1 Implement `src/analysis/processors/string_extractor.py` with StringExtractor class
+    - [x] 3.5.2 Extract ASCII/Unicode strings with context and location
+    - [x] 3.5.3 Categorize strings (URLs, file paths, credentials, configuration)
+    - [x] 3.5.4 Add string filtering and significance scoring
+  - [x] 3.6 Integrate all processors into main analysis engine
+    - [x] 3.6.1 Create `src/analysis/engine.py` with BinaryAnalysisEngine class
+    - [x] 3.6.2 Implement analysis workflow coordination and processor orchestration
+    - [x] 3.6.3 Add configuration-based analysis depth and focus area selection
+    - [x] 3.6.4 Create result aggregation and confidence scoring
   - [ ] 3.7 Add comprehensive error handling and timeout management
     - [ ] 3.7.1 Implement analysis timeout with graceful cancellation
     - [ ] 3.7.2 Add r2 crash recovery and session restart logic
