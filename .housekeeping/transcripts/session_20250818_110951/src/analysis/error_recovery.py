@@ -143,7 +143,7 @@ class AnalysisRecoveryManager:
             BinaryAnalysisException: If all recovery attempts fail
         """
         context = context or {}
-        timeout_seconds = timeout_seconds or self.settings.analysis.default_timeout_seconds
+        timeout_seconds = timeout_seconds or self.settings.analysis.default_timeout
         
         # Create timeout context
         timeout_ctx = TimeoutContext(
@@ -158,21 +158,12 @@ class AnalysisRecoveryManager:
         try:
             for attempt in range(max_retries + 1):
                 try:
-                    # Get current timeout from context (may have been extended by recovery)
-                    current_timeout = context.get("timeout_seconds", timeout_seconds)
-                    
-                    # Update timeout context if timeout was extended
-                    if current_timeout != timeout_ctx.timeout_seconds:
-                        timeout_ctx.timeout_seconds = current_timeout
-                        timeout_ctx.start_time = time.time()  # Reset start time for new timeout
-                        timeout_ctx.cancellation_token.clear()  # Reset cancellation token
-                    
                     logger.info(
                         "executing_operation_with_recovery",
                         operation=operation_name,
                         attempt=attempt + 1,
                         max_retries=max_retries,
-                        timeout=current_timeout
+                        timeout=timeout_seconds
                     )
                     
                     # Execute with timeout and cancellation support
@@ -246,8 +237,8 @@ class AnalysisRecoveryManager:
             )
             
             try:
-                # Check if operation is already cancelled (if cancellation token exists)
-                if timeout_ctx.cancellation_token and timeout_ctx.cancellation_token.is_set():
+                # Check if operation is already cancelled
+                if timeout_ctx.cancellation_token.is_set():
                     raise asyncio.CancelledError("Operation was cancelled")
                 
                 # Execute the operation
@@ -275,9 +266,8 @@ class AnalysisRecoveryManager:
             )
             
         except asyncio.TimeoutError:
-            # Set cancellation token if it exists
-            if timeout_ctx.cancellation_token:
-                timeout_ctx.cancellation_token.set()
+            # Set cancellation token
+            timeout_ctx.cancellation_token.set()
             
             # Attempt graceful cancellation
             await self._attempt_graceful_cancellation(timeout_ctx, context)
@@ -463,7 +453,7 @@ class AnalysisRecoveryManager:
         
         # Check if we can extend timeout and retry
         current_timeout = context.get("timeout_seconds", 30)
-        max_timeout = self.settings.analysis.max_timeout_seconds
+        max_timeout = self.settings.analysis.max_timeout
         
         if current_timeout < max_timeout:
             extended_timeout = min(current_timeout * 1.5, max_timeout)
@@ -633,11 +623,6 @@ class AnalysisRecoveryManager:
             exception_type=type(exception).__name__
         )
         
-        # Collect any partial results before deciding recovery action
-        partial_result = await self._collect_partial_results(operation_name, context)
-        if partial_result:
-            self._partial_results.append(partial_result)
-        
         # Conservative approach: try once more, then abort
         if error.context.get("attempt", 0) == 0:
             return {
@@ -780,8 +765,7 @@ def get_recovery_manager() -> AnalysisRecoveryManager:
 async def recovery_context(
     operation_name: str,
     timeout_seconds: Optional[float] = None,
-    context: Optional[Dict[str, Any]] = None,
-    max_retries: int = 3
+    context: Optional[Dict[str, Any]] = None
 ):
     """
     Context manager for operations with automatic error recovery.
@@ -798,14 +782,12 @@ async def recovery_context(
             self.operation_name = operation_name
             self.timeout_seconds = timeout_seconds
             self.context = context or {}
-            self.max_retries = max_retries
         
         async def execute(self, operation_func: Callable, **kwargs) -> Any:
             return await self.manager.execute_with_recovery(
                 operation_func,
                 self.operation_name,
                 self.timeout_seconds,
-                self.max_retries,
                 context={**self.context, **kwargs}
             )
     

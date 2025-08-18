@@ -177,16 +177,34 @@ class TestAnalysisRecoveryManager:
     
     @pytest.mark.asyncio
     async def test_execute_with_recovery_timeout(self, recovery_manager):
-        """Test operation timeout handling."""
+        """Test operation timeout handling with successful recovery."""
         async def slow_operation():
-            await asyncio.sleep(2.0)  # Longer than timeout
+            await asyncio.sleep(2.0)  # Longer than initial timeout but less than extended
             return "slow_result"
         
+        # Should succeed after timeout is extended during recovery
+        result = await recovery_manager.execute_with_recovery(
+            slow_operation,
+            "test_operation",
+            timeout_seconds=0.1,  # Short timeout that will be extended
+            max_retries=1
+        )
+        
+        assert result == "slow_result"
+    
+    @pytest.mark.asyncio
+    async def test_execute_with_unrecoverable_timeout(self, recovery_manager):
+        """Test operation timeout that cannot be recovered from."""
+        async def very_slow_operation():
+            await asyncio.sleep(60.0)  # Longer than max timeout
+            return "very_slow_result"
+        
+        # Should fail even after timeout extension because operation is too slow
         with pytest.raises(BinaryAnalysisException):
             await recovery_manager.execute_with_recovery(
-                slow_operation,
+                very_slow_operation,
                 "test_operation",
-                timeout_seconds=0.1,  # Short timeout
+                timeout_seconds=0.1,  # Will be extended but still not enough
                 max_retries=1
             )
     
@@ -312,7 +330,9 @@ class TestAnalysisRecoveryManager:
         
         assert partial_result is not None
         assert partial_result.component == "test_operation"
-        assert "intermediate_results" in partial_result.data
+        # intermediate_results contents should be merged into partial_data
+        assert "step1" in partial_result.data  # from intermediate_results
+        assert partial_result.data["step1"] == "complete"
         assert "processor_state" in partial_result.data
         assert "completed_operations" in partial_result.data
         assert partial_result.completeness > 0
@@ -441,7 +461,7 @@ class TestRecoveryContext:
             return "slow_result"
         
         with pytest.raises(Exception):  # Should timeout
-            async with recovery_context("test_operation", timeout_seconds=0.1) as recovery:
+            async with recovery_context("test_operation", timeout_seconds=0.1, max_retries=0) as recovery:
                 await recovery.execute(slow_operation)
     
     @pytest.mark.asyncio
@@ -497,8 +517,11 @@ class TestRecoveryManagerEdgeCases:
         
         tasks = []
         for i in range(5):
+            async def operation_func(op_id=i):
+                return await concurrent_operation(op_id)
+            
             task = recovery_manager.execute_with_recovery(
-                lambda i=i: concurrent_operation(i),
+                operation_func,
                 f"concurrent_operation_{i}",
                 timeout_seconds=1.0
             )
