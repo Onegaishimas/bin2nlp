@@ -1,4 +1,4 @@
-# Project PRD: Binary Analysis API (bin2nlp)
+# Project PRD: Binary Decompilation & LLM Translation Service (bin2nlp)
 
 ## Project Overview
 
@@ -44,7 +44,7 @@ Organizations and developers need structured, human-readable data about binary f
 **Technical Performance:**
 - File processing times: Small (≤10MB) in seconds, Medium (≤30MB) in minutes, Large (≤100MB) in ≤20 minutes
 - Cross-platform format support: Windows (.exe/.dll), Linux (.elf/.so), macOS (.app/.dylib), Mobile apps
-- System reliability: 95%+ successful analysis completion rate
+- System reliability: 95%+ successful decompilation and translation completion rate
 
 **Translation Quality:**
 - LLM translation accuracy: Useful, actionable explanations in 85%+ of decompilation results
@@ -187,18 +187,18 @@ Organizations and developers need structured, human-readable data about binary f
 3. **Natural Language Translation:** Convert assembly code and binary behavior into clear business language explanations
 4. **Configurable Analysis Depth:** Support quick overview, standard analysis, and comprehensive audit modes
 5. **Security Insight Generation:** Automatically identify and highlight suspicious behaviors, network operations, and file system interactions
-6. **Structured Output:** Provide JSON/XML API responses with organized analysis results
+6. **Structured Output:** Provide JSON/XML API responses with organized decompilation and translation results
 7. **Error Handling:** Graceful failure handling for unsupported formats or corrupted files
 
 ### Non-Functional Requirements
 **Performance:**
-- Small files (≤10MB): Complete analysis within 30 seconds
-- Medium files (≤30MB): Complete analysis within 5 minutes
-- Large files (≤100MB): Complete analysis within 20 minutes
+- Small files (≤10MB): Complete decompilation and translation within 30 seconds
+- Medium files (≤30MB): Complete decompilation and translation within 5 minutes
+- Large files (≤100MB): Complete decompilation and translation within 20 minutes
 - API response time: <2 seconds for status and result retrieval
 
 **Reliability:**
-- 95% successful analysis completion rate for supported file formats
+- 95% successful decompilation and translation completion rate for supported file formats
 - Graceful degradation for partially corrupted or unusual binary files
 - Comprehensive error reporting and logging
 

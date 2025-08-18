@@ -1,14 +1,14 @@
 """
-Binary analysis engine components.
+Binary analysis support components.
 
-This package provides the core binary analysis functionality including
-file format detection, radare2 integration, and analysis processors.
+This package provides remaining analysis components used by the decompilation system:
+- R2 radare2 integration
+- Error recovery system
+- Base analysis interfaces (kept for compatibility)
 """
 
-from .processors.format_detector import FormatDetector
 from .engines.base import AnalysisEngine
 
 __all__ = [
-    'FormatDetector',
-    'AnalysisEngine'
+    'AnalysisEngine'  # Kept for compatibility, may be removed in future cleanup
 ]
