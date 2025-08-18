@@ -142,7 +142,7 @@ class R2Session:
             )
             
             # Run r2pipe initialization in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             self._r2_pipe = await loop.run_in_executor(
                 None,
                 self._init_r2pipe
@@ -173,7 +173,7 @@ class R2Session:
     
     async def _create_temp_file(self) -> str:
         """Create temporary file from file content."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         
         def _write_temp_file():
             fd, temp_path = tempfile.mkstemp(suffix='.bin', prefix='r2_analysis_')
@@ -420,7 +420,7 @@ class R2Session:
     
     async def _execute_single_command(self, cmd: R2Command) -> Any:
         """Execute single command with timeout."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         
         def _run_command():
             try:
@@ -752,13 +752,13 @@ class R2Session:
         try:
             if self._r2_pipe:
                 # Close r2pipe session
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, self._close_r2pipe)
                 self._r2_pipe = None
             
             # Remove temporary file if created
             if self._temp_file_path and os.path.exists(self._temp_file_path):
-                await asyncio.get_event_loop().run_in_executor(
+                await asyncio.get_running_loop().run_in_executor(
                     None,
                     os.unlink,
                     self._temp_file_path
@@ -802,8 +802,6 @@ class R2Session:
         
         try:
             # Quick health check command
-            loop = asyncio.get_event_loop()
-            
             def _health_check():
                 try:
                     # Simple command that should always work
@@ -813,6 +811,7 @@ class R2Session:
                     return False
             
             # Run health check with short timeout
+            loop = asyncio.get_running_loop()
             is_healthy = await asyncio.wait_for(
                 loop.run_in_executor(None, _health_check),
                 timeout=2.0
@@ -853,7 +852,7 @@ class R2Session:
             # Clean up existing session
             if self._r2_pipe:
                 try:
-                    loop = asyncio.get_event_loop()
+                    loop = asyncio.get_running_loop()
                     await loop.run_in_executor(None, self._close_r2pipe)
                 except Exception as cleanup_error:
                     self.logger.warning(
