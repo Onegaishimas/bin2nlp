@@ -1,8 +1,8 @@
 """
-Radare2 integration layer for binary analysis.
+Radare2 integration layer for binary decompilation.
 
-Provides a robust wrapper around r2pipe with connection management,
-error handling, timeout support, and resource cleanup.
+Provides a focused wrapper around r2pipe optimized for decompilation operations
+with assembly extraction, function analysis, and structured data output for LLM consumption.
 """
 
 import asyncio
@@ -238,7 +238,7 @@ class R2Session:
             R2TimeoutException: If command times out
             R2SessionException: If session is not ready or command fails
         """
-        if not self.is_ready:
+        if not self.is_ready and self._state != R2SessionState.INITIALIZING:
             raise R2SessionException(f"Session not ready (state: {self._state.value})")
         
         timeout = timeout or self.default_timeout
@@ -468,60 +468,49 @@ class R2Session:
         
         return result.output
     
-    async def analyze_functions(self, analysis_depth: str = "standard") -> List[Dict[str, Any]]:
+    async def extract_functions(self, analysis_depth: str = "standard") -> List[Dict[str, Any]]:
         """
-        Analyze functions in the binary.
+        Extract functions for decompilation.
         
         Args:
-            analysis_depth: Analysis depth (quick, standard, comprehensive)
+            analysis_depth: Analysis depth (basic, standard, comprehensive)
             
         Returns:
-            List of function analysis results
+            List of function information with addresses and metadata
         """
-        # First run analysis
+        # Simplified analysis for decompilation focus
         analysis_commands = {
-            "quick": ["aa"],      # Basic analysis
-            "standard": ["aaa"],  # More thorough analysis
-            "comprehensive": ["aaaa"]  # Full analysis
+            "basic": ["aa"],       # Basic function discovery
+            "standard": ["aaa"],   # Function analysis with imports
+            "comprehensive": ["aaaa"] # Full analysis (for complex binaries)
         }
         
         commands = analysis_commands.get(analysis_depth, ["aaa"])
         
-        # Run analysis commands
+        # Run minimal analysis for function extraction
         for cmd in commands:
-            result = await self.execute_command(cmd, timeout=120.0)
+            result = await self.execute_command(cmd, timeout=60.0)  # Reduced timeout
             if not result.success:
                 self.logger.warning(
-                    "Analysis command failed",
+                    "Function discovery failed",
                     command=cmd,
                     error=result.error_message
                 )
         
-        # Get function list
+        # Get function list with basic info
         result = await self.execute_command("aflj", cache_result=True)
         if not result.success:
-            raise R2SessionException(f"Failed to get function list: {result.error_message}")
+            raise R2SessionException(f"Failed to extract functions: {result.error_message}")
         
         return result.output or []
     
     async def get_strings(self, min_length: int = 4) -> List[Dict[str, Any]]:
-        """Get strings from the binary."""
-        command = f"izj~{{length>={min_length}}}"
-        result = await self.execute_command(command, cache_result=True)
-        
-        if not result.success:
-            raise R2SessionException(f"Failed to get strings: {result.error_message}")
-        
-        return result.output or []
+        """Get strings from the binary (simplified version)."""
+        return await self.get_strings_with_context(min_length)
     
     async def get_imports(self) -> List[Dict[str, Any]]:
-        """Get imported functions."""
-        result = await self.execute_command("iij", cache_result=True)
-        
-        if not result.success:
-            raise R2SessionException(f"Failed to get imports: {result.error_message}")
-        
-        return result.output or []
+        """Get imported functions (enhanced version with context)."""
+        return await self.get_import_details()
     
     async def get_exports(self) -> List[Dict[str, Any]]:
         """Get exported functions."""
@@ -569,30 +558,192 @@ class R2Session:
         
         return result.output or ""
     
-    async def search_pattern(self, pattern: str, pattern_type: str = "string") -> List[Dict[str, Any]]:
+    async def get_function_assembly(
+        self, 
+        function_address: Union[str, int],
+        include_comments: bool = True,
+        max_instructions: int = 200
+    ) -> Dict[str, Any]:
         """
-        Search for patterns in the binary.
+        Extract assembly code for a function optimized for LLM consumption.
         
         Args:
-            pattern: Pattern to search for
-            pattern_type: Type of pattern (string, hex, regex)
+            function_address: Function address (hex string or int)
+            include_comments: Include r2 comments and analysis
+            max_instructions: Maximum number of instructions to extract
             
         Returns:
-            List of search results
+            Dict containing assembly code, metadata, and context
         """
-        command_map = {
-            "string": f"/j {pattern}",
-            "hex": f"/xj {pattern}",
-            "regex": f"/rj {pattern}"
+        if isinstance(function_address, int):
+            function_address = f"0x{function_address:x}"
+        
+        # Get function info
+        info_cmd = f"afij @ {function_address}"
+        info_result = await self.execute_command(info_cmd)
+        
+        function_info = {}
+        if info_result.success and info_result.output:
+            function_info = info_result.output[0] if isinstance(info_result.output, list) else {}
+        
+        # Get disassembly with context
+        disasm_cmd = f"pdf @ {function_address}"
+        if not include_comments:
+            disasm_cmd = f"pD {max_instructions} @ {function_address}"
+            
+        disasm_result = await self.execute_command(disasm_cmd, expected_type="text")
+        
+        if not disasm_result.success:
+            raise R2SessionException(
+                f"Failed to get assembly for function at {function_address}: {disasm_result.error_message}"
+            )
+        
+        # Get cross-references
+        xrefs_cmd = f"axtj @ {function_address}"
+        xrefs_result = await self.execute_command(xrefs_cmd)
+        xrefs = xrefs_result.output or [] if xrefs_result.success else []
+        
+        return {
+            "address": function_address,
+            "assembly": disasm_result.output or "",
+            "function_info": function_info,
+            "cross_references": xrefs,
+            "instruction_count": len([line for line in (disasm_result.output or "").split('\n') if line.strip() and not line.startswith(';')])
         }
+    
+    async def get_strings_with_context(self, min_length: int = 4) -> List[Dict[str, Any]]:
+        """
+        Get strings with usage context and cross-references for LLM analysis.
         
-        command = command_map.get(pattern_type, f"/j {pattern}")
-        result = await self.execute_command(command)
+        Args:
+            min_length: Minimum string length
+            
+        Returns:
+            List of strings with context information
+        """
+        # Get all strings
+        strings_result = await self.execute_command("izj", cache_result=True)
+        if not strings_result.success:
+            raise R2SessionException(f"Failed to get strings: {strings_result.error_message}")
         
-        if not result.success:
-            raise R2SessionException(f"Failed to search pattern: {result.error_message}")
+        strings = strings_result.output or []
+        enhanced_strings = []
         
-        return result.output or []
+        for string_data in strings:
+            if string_data.get('length', 0) < min_length:
+                continue
+                
+            # Get cross-references for this string
+            string_addr = string_data.get('vaddr', 0)
+            if string_addr:
+                xrefs_cmd = f"axtj @ 0x{string_addr:x}"
+                xrefs_result = await self.execute_command(xrefs_cmd)
+                xrefs = xrefs_result.output or [] if xrefs_result.success else []
+                
+                string_data['cross_references'] = xrefs
+                string_data['usage_count'] = len(xrefs)
+            
+            enhanced_strings.append(string_data)
+        
+        return enhanced_strings
+    
+    async def get_import_details(self) -> List[Dict[str, Any]]:
+        """
+        Get detailed import information with function signatures and usage context.
+        
+        Returns:
+            List of imports with enhanced metadata
+        """
+        # Get basic imports
+        imports_result = await self.execute_command("iij", cache_result=True)
+        if not imports_result.success:
+            raise R2SessionException(f"Failed to get imports: {imports_result.error_message}")
+        
+        imports = imports_result.output or []
+        enhanced_imports = []
+        
+        for import_data in imports:
+            # Get cross-references for each import
+            import_addr = import_data.get('plt', 0) or import_data.get('vaddr', 0)
+            if import_addr:
+                xrefs_cmd = f"axtj @ 0x{import_addr:x}"
+                xrefs_result = await self.execute_command(xrefs_cmd)
+                xrefs = xrefs_result.output or [] if xrefs_result.success else []
+                
+                import_data['cross_references'] = xrefs
+                import_data['usage_count'] = len(xrefs)
+            
+            enhanced_imports.append(import_data)
+        
+        return enhanced_imports
+    
+    async def format_assembly_for_llm(self, assembly_text: str) -> str:
+        """
+        Format assembly code for optimal LLM consumption.
+        
+        Args:
+            assembly_text: Raw assembly output from r2
+            
+        Returns:
+            Formatted assembly text with consistent structure
+        """
+        if not assembly_text:
+            return ""
+            
+        lines = assembly_text.split('\n')
+        formatted_lines = []
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            # Skip empty lines and header/footer
+            if not stripped or stripped.startswith('/') or '0x' not in stripped:
+                continue
+                
+            # Clean up instruction formatting
+            # Extract address, instruction, and operands
+            parts = stripped.split(None, 2)  # Split into max 3 parts
+            if len(parts) >= 2:
+                address = parts[0]
+                instruction = parts[1] if len(parts) > 1 else ""
+                operands = parts[2] if len(parts) > 2 else ""
+                
+                # Format consistently: address: instruction operands
+                formatted_line = f"{address}: {instruction}"
+                if operands:
+                    formatted_line += f" {operands}"
+                    
+                formatted_lines.append(formatted_line)
+        
+        return '\n'.join(formatted_lines)
+    
+    async def get_address_mapping(self, start_addr: Union[str, int], size: int = 100) -> Dict[str, str]:
+        """
+        Get address-to-symbol mapping for debugging and reference.
+        
+        Args:
+            start_addr: Starting address 
+            size: Number of bytes to map
+            
+        Returns:
+            Dict mapping addresses to symbol names and information
+        """
+        if isinstance(start_addr, int):
+            start_addr = f"0x{start_addr:x}"
+            
+        # Get symbols in range
+        symbols_cmd = f"isj"
+        symbols_result = await self.execute_command(symbols_cmd, cache_result=True)
+        
+        mapping = {}
+        if symbols_result.success and symbols_result.output:
+            for symbol in symbols_result.output:
+                addr = symbol.get('vaddr', 0)
+                name = symbol.get('name', '')
+                if addr and name:
+                    mapping[f"0x{addr:x}"] = name
+        
+        return mapping
     
     async def cleanup(self) -> None:
         """Clean up session resources."""
@@ -748,7 +899,7 @@ class R2Session:
     
     def _should_restart_for_error(self, error: Exception) -> bool:
         """
-        Determine if session restart should be attempted for the given error (ADR: intelligent recovery).
+        Simplified error restart logic for decompilation operations.
         
         Args:
             error: The exception that occurred
@@ -756,21 +907,18 @@ class R2Session:
         Returns:
             True if restart should be attempted, False otherwise
         """
-        # Restart for process-related errors
+        # Restart only for critical process-related errors
         restart_error_types = (
-            ConnectionError, ProcessLookupError, BrokenPipeError, OSError,
-            r2pipe.OpenException if hasattr(r2pipe, 'OpenException') else Exception
+            ConnectionError, ProcessLookupError, BrokenPipeError
         )
         
         if isinstance(error, restart_error_types):
             return True
         
-        # Restart for certain error messages that indicate process issues
+        # Restart for essential error indicators only
         error_str = str(error).lower()
         restart_indicators = [
-            'broken pipe', 'connection lost', 'process not found',
-            'no such process', 'session closed', 'pipe closed',
-            'radare2 crashed', 'r2 not responding'
+            'broken pipe', 'process not found', 'session closed'
         ]
         
         return any(indicator in error_str for indicator in restart_indicators)
