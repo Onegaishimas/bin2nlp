@@ -108,7 +108,7 @@ class R2Session:
         self._temp_file_path: Optional[str] = None
         self._state = R2SessionState.INITIALIZING
         self._command_cache: Dict[str, R2CommandResult] = {}
-        self._session_id = f"r2_{int(time.time() * 1000)}"
+        self._session_id = f"r2_{int(time.time() * 1000000)}_{id(self)}"
         
         self.logger = logger.bind(
             component="r2_session",
