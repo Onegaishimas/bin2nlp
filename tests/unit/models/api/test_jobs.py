@@ -112,7 +112,7 @@ class TestJobCreationRequest:
             "depth": "comprehensive",
             "timeout_seconds": 600,
             "focus_areas": ["security", "functions", "strings"],
-            "enable_security_scan": True,
+            "decompilation_enabled": True,
             "max_functions": 5000,
             "max_strings": 10000
         }

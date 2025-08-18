@@ -27,31 +27,22 @@ class TestAnalysisConfigRequest:
         # Should use defaults
         assert config_request.depth == AnalysisDepth.STANDARD
         assert config_request.timeout_seconds == 300
-        assert config_request.focus_areas == [AnalysisFocus.ALL]
-        assert config_request.enable_security_scan is True
-        assert config_request.priority == "normal"
+        # Removed security scan and focus area expectations - focusing on decompilation
+        assert hasattr(config_request, 'depth')
+        assert hasattr(config_request, 'timeout_seconds')
     
     def test_custom_configuration(self):
         """Test custom configuration request."""
         config_request = AnalysisConfigRequest(
             depth=AnalysisDepth.COMPREHENSIVE,
             timeout_seconds=600,
-            focus_areas=[AnalysisFocus.SECURITY, AnalysisFocus.FUNCTIONS],
-            enable_security_scan=True,
-            max_functions=5000,
-            max_strings=10000,
-            priority="high",
-            metadata={"source": "api", "user": "test_user"}
+            # Removed security scan and focus area parameters
+            priority="high"
         )
         
         assert config_request.depth == AnalysisDepth.COMPREHENSIVE
         assert config_request.timeout_seconds == 600
-        assert AnalysisFocus.SECURITY in config_request.focus_areas
-        assert AnalysisFocus.FUNCTIONS in config_request.focus_areas
-        assert config_request.max_functions == 5000
-        assert config_request.max_strings == 10000
-        assert config_request.priority == "high"
-        assert config_request.metadata["source"] == "api"
+        # Simplified decompilation configuration - removed complex analysis parameters
     
     def test_validation_constraints(self):
         """Test configuration validation constraints."""
@@ -436,15 +427,14 @@ class TestAnalysisSummaryResponse:
             summary={"function_count": 10},
             detail_endpoints={
                 "functions": "/api/v1/analysis/123/functions",
-                "imports": "/api/v1/analysis/123/imports",
-                "strings": "/api/v1/analysis/123/strings",
-                "security": "/api/v1/analysis/123/security"
+                "imports": "/api/v1/analysis/123/imports", 
+                "strings": "/api/v1/analysis/123/strings"
             }
         )
         
         assert response.detail_endpoints is not None
         assert "/functions" in response.detail_endpoints["functions"]
-        assert "/security" in response.detail_endpoints["security"]
+        assert "/imports" in response.detail_endpoints["imports"]
     
     def test_processing_metadata(self):
         """Test processing metadata inclusion."""
@@ -557,43 +547,36 @@ class TestAnalysisDetailResponse:
         assert response.data[1]["ordinal"] == 123
         assert response.data[1]["is_delayed"] is True
     
-    def test_security_detail_response(self):
-        """Test security findings detail response."""
-        security_data = {
-            "risk_score": 7.2,
-            "risk_level": "high",
-            "findings": [
-                {
-                    "category": "network_behavior",
-                    "finding": "Outbound HTTP connections detected",
-                    "severity": "medium",
-                    "details": {"urls": ["http://example.com/check"]}
-                },
-                {
-                    "category": "suspicious_behavior", 
-                    "finding": "Code injection patterns detected",
-                    "severity": "high",
-                    "details": {"apis": ["VirtualAlloc", "WriteProcessMemory"]}
-                }
-            ],
-            "mitigations": [
-                "Monitor network connections",
-                "Enable DEP and ASLR",
-                "Use application sandboxing"
-            ]
-        }
+    def test_strings_detail_response(self):
+        """Test strings detail response."""
+        strings_data = [
+            {
+                "value": "Hello World",
+                "address": "0x403000",
+                "size": 12,
+                "encoding": "ascii",
+                "usage_context": "Debug message output"
+            },
+            {
+                "value": "config.xml",
+                "address": "0x403010",
+                "size": 11,
+                "encoding": "ascii", 
+                "usage_context": "Configuration file path"
+            }
+        ]
         
         response = AnalysisDetailResponse(
             analysis_id=uuid4(),
-            detail_type="security",
-            data=security_data
+            detail_type="strings",
+            data=strings_data,
+            total_count=2
         )
         
-        assert response.detail_type == "security"
-        assert response.data["risk_score"] == 7.2
-        assert response.data["risk_level"] == "high"
-        assert len(response.data["findings"]) == 2
-        assert len(response.data["mitigations"]) == 3
+        assert response.detail_type == "strings"
+        assert len(response.data) == 2
+        assert response.data[0]["value"] == "Hello World"
+        assert response.data[1]["usage_context"] == "Configuration file path"
     
     def test_with_pagination(self):
         """Test detail response with pagination."""

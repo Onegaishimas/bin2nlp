@@ -6,8 +6,9 @@ validation, response formatting, and error handling.
 """
 
 from .analysis import (
-    AnalysisSubmissionRequest, AnalysisSubmissionResponse,
-    AnalysisSummaryResponse, AnalysisDetailResponse
+    DecompilationRequest, DecompilationSubmissionResponse,
+    AnalysisSummaryResponse, AnalysisDetailResponse,
+    FileUploadRequest, FileUploadResponse, AnalysisConfigRequest
 )
 from .jobs import (
     JobCreationRequest, JobStatusResponse, JobListResponse,
@@ -19,11 +20,14 @@ from .auth import (
 )
 
 __all__ = [
-    # Analysis API models
-    "AnalysisSubmissionRequest",
-    "AnalysisSubmissionResponse", 
+    # Analysis API models (decompilation-focused)
+    "DecompilationRequest",
+    "DecompilationSubmissionResponse", 
     "AnalysisSummaryResponse",
     "AnalysisDetailResponse",
+    "FileUploadRequest",
+    "FileUploadResponse",
+    "AnalysisConfigRequest",
     
     # Job API models
     "JobCreationRequest",

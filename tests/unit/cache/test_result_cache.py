@@ -71,7 +71,7 @@ def sample_analysis_config():
         "depth": "standard",
         "timeout_seconds": 300,
         "focus_areas": ["security", "functions"],
-        "enable_security_scan": True,
+        "enable_decompilation": True,
         "max_functions": 10000,
         "max_strings": 50000
     }
@@ -238,7 +238,7 @@ class TestResultCache:
         tags = result_cache._extract_tags(file_hash, sample_analysis_config)
         
         assert "depth:standard" in tags
-        assert "security_scan" in tags
+        assert "decompilation" in tags
         assert any("focus:" in tag for tag in tags)
     
     @pytest.mark.asyncio
@@ -332,7 +332,7 @@ class TestResultCache:
         cached_entry = {
             "data": {"test": "data"},
             "cache_version": "1.0",
-            "tags": ["depth:standard", "security_scan"]
+            "tags": ["depth:standard", "decompilation"]
         }
         mock_redis_client.get.return_value = cached_entry
         
@@ -382,7 +382,7 @@ class TestResultCache:
             "cache_version": "1.0",
             "file_hash": "abc123",
             "config_hash": "def456",
-            "tags": ["depth:standard", "security_scan"],
+            "tags": ["depth:standard", "decompilation"],
             "access_count": 5,
             "data": {"test": "data"}
         }
@@ -475,7 +475,7 @@ class TestResultCacheIntegration:
             "cache_version": "1.0",
             "file_hash": file_hash,
             "config_hash": "test_hash",
-            "tags": ["depth:standard", "security_scan"],
+            "tags": ["depth:standard", "decompilation"],
             "access_count": 0
         }
         mock_redis_client.get.return_value = cached_entry

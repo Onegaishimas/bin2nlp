@@ -432,6 +432,10 @@ class UnsupportedFormatException(AnalysisException):
         self.detected_format = detected_format
 
 
+# Alias for backward compatibility
+FileFormatException = UnsupportedFormatException
+
+
 class FileValidationException(ValidationException):
     """
     Exception raised when file content validation fails.
