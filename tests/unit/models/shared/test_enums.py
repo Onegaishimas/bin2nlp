@@ -74,7 +74,7 @@ class TestFileFormat:
     
     def test_enum_values(self):
         """Test that all expected enum values exist."""
-        expected_values = ['pe', 'elf', 'macho', 'apk', 'ipa', 'unknown']
+        expected_values = ['pe', 'elf', 'macho', 'apk', 'ipa', 'java', 'wasm', 'raw', 'unknown']
         actual_values = [fmt.value for fmt in FileFormat]
         assert set(actual_values) == set(expected_values)
     

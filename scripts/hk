@@ -1,0 +1,3 @@
+#!/bin/bash
+# Quick housekeeping command
+exec "$(dirname "$0")/housekeep.sh" "$@"

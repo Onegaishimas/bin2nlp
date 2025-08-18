@@ -1,0 +1,3 @@
+#!/bin/bash
+# Intelligent Context Clear & Resume - Auto-capture and resume
+exec python3 "$(dirname "$0")/clear-and-resume.py" "$@"
