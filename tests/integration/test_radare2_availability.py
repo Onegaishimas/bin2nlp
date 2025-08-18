@@ -11,7 +11,7 @@ import os
 import shutil
 from unittest.mock import Mock, patch, AsyncMock
 
-from src.analysis.engines.r2_integration import R2Session, R2SessionException
+from src.decompilation.r2_session import R2Session, R2SessionException
 from src.decompilation.engine import DecompilationEngine
 from src.core.config import get_settings
 

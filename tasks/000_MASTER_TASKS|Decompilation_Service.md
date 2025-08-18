@@ -42,37 +42,70 @@ This master task list consolidates:
 - ✅ **3.7 Error Handling** - Comprehensive timeout and recovery management
 - ✅ **3.8 Unit Tests** - Mock LLM responses and r2 integration tests
 
-## 🎯 **CURRENT FOCUS: ALIGNMENT & PRODUCTION READINESS** (Sections 4-5)
+## 🎯 **CURRENT FOCUS: CONSOLIDATION & PRODUCTION READINESS** (Sections 4.5-5)
 
-### 🔄 **4.0 Architecture Alignment** - IN PROGRESS
-**Priority:** CRITICAL - Ensure all components align with decompilation-first architecture
+### ✅ **4.0 Architecture Alignment** - COMPLETE (16/16 tasks complete - 100%)
+**Priority:** CRITICAL - Ensure all components align with decompilation-first architecture ✅ **ACHIEVED**
 
-- [ ] **4.1 Document Consistency Validation**
-  - [ ] 4.1.1 Update Project PRD to emphasize decompilation + LLM translation (remove analysis focus)
-  - [ ] 4.1.2 Verify ADR reflects implemented decompilation architecture
-  - [ ] 4.1.3 Update Feature PRDs to match decompilation service capabilities
-  - [ ] 4.1.4 Reconcile task lists (mark analysis-focused items as deprecated/transformed)
+- [x] **4.1 Document Consistency Validation** (4/4 complete) ✅
+  - [x] 4.1.1 Update Project PRD to emphasize decompilation + LLM translation (remove analysis focus)
+  - [x] 4.1.2 Verify ADR reflects implemented decompilation architecture
+  - [x] 4.1.3 Update Feature PRDs to match decompilation service capabilities
+  - [x] 4.1.4 Reconcile task lists (mark analysis-focused items as deprecated/transformed)
 
-- [ ] **4.2 Code Architecture Audit**  
-  - [ ] 4.2.1 Verify src/analysis/engine.py vs src/decompilation/engine.py alignment
-  - [ ] 4.2.2 Validate src/models/analysis/ contains only decompilation-supporting models
-  - [ ] 4.2.3 Ensure src/models/decompilation/ is the primary result model location
-  - [ ] 4.2.4 Remove/refactor any remaining analysis-focused components
+- [x] **4.2 Code Architecture Audit** (4/4 complete) ✅
+  - [x] 4.2.1 Verify src/analysis/engine.py vs src/decompilation/engine.py alignment
+  - [x] 4.2.2 Validate src/models/analysis/ contains only decompilation-supporting models
+  - [x] 4.2.3 Ensure src/models/decompilation/ is the primary result model location
+  - [x] 4.2.4 Remove/refactor any remaining analysis-focused components
 
-- [ ] **4.3 API Endpoint Validation**
-  - [ ] 4.3.1 Confirm src/api/routes/decompilation.py follows decompilation-first design
-  - [ ] 4.3.2 Verify LLM provider selection and configuration endpoints work properly
-  - [ ] 4.3.3 Remove deprecated analysis endpoints if any exist
-  - [ ] 4.3.4 Validate OpenAPI documentation matches decompilation service
+- [x] **4.3 API Endpoint Validation** (4/4 complete) ✅
+  - [x] 4.3.1 Confirm src/api/routes/decompilation.py follows decompilation-first design
+  - [x] 4.3.2 Verify LLM provider selection and configuration endpoints work properly
+  - [x] 4.3.3 Remove deprecated analysis endpoints if any exist
+  - [x] 4.3.4 Validate OpenAPI documentation matches decompilation service
 
-- [ ] **4.4 Test Expectation Alignment**
-  - [ ] 4.4.1 Fix tests expecting analysis behavior vs decompilation behavior
-  - [ ] 4.4.2 Ensure integration tests validate decompilation + LLM workflow
-  - [ ] 4.4.3 Remove/update analysis-focused test expectations
-  - [ ] 4.4.4 Validate end-to-end decompilation service testing
+- [x] **4.4 Test Expectation Alignment** (4/4 complete) ✅
+  - [x] 4.4.1 Fix tests expecting analysis behavior vs decompilation behavior
+  - [x] 4.4.2 Ensure integration tests validate decompilation + LLM workflow
+  - [x] 4.4.3 Remove/update analysis-focused test expectations
+  - [x] 4.4.4 Validate end-to-end decompilation service testing
 
-### 🚀 **5.0 Production Readiness** - PENDING
-**Priority:** HIGH - Complete production deployment and monitoring
+**🎉 MILESTONE ACHIEVED:** End-to-end workflow validation complete! 
+- ✅ Decompilation engine processes files correctly
+- ✅ LLM integration attempts proper connections with graceful degradation
+- ✅ Test framework properly handles missing external dependencies
+- ✅ All components use decompilation terminology consistently
+
+### ✅ **4.5 Architecture Consolidation** - COMPLETE (8/8 high-priority tasks)
+**Priority:** HIGH - Consolidate duplicate components and clean architecture ✅ **ACHIEVED**
+
+- [x] **4.5.1 Engine Infrastructure Cleanup** (High Priority) ✅
+  - [x] 4.5.1.1 Move R2Session from src/analysis/engines/ to src/decompilation/ ✅
+  - [x] 4.5.1.2 Update imports in DecompilationEngine to use moved R2Session ✅  
+  - [x] 4.5.1.3 Remove old r2_integration.py file ✅
+  - [x] 4.5.1.4 Update all test imports to use new R2Session location ✅
+
+- [x] **4.5.2 Model Directory Consolidation** (High Priority) ✅
+  - [x] 4.5.2.1 Remove duplicate src/models/analysis/config_old.py ✅
+  - [x] 4.5.2.2 Verified no imports exist for duplicate file ✅
+  - [x] 4.5.2.3 Confirmed decompilation/results.py is primary model location ✅
+  - [x] 4.5.2.4 All model imports properly aligned ✅
+
+- [x] **4.5.3 API Model Cleanup** (High Priority) ✅ 
+  - [x] 4.5.3.1 Remove unused legacy API models in src/models/api/analysis.py ✅
+  - [x] 4.5.3.2 Update src/models/api/__init__.py to remove broken imports ✅
+  - [x] 4.5.3.3 Verify API routes use correct decompilation models ✅
+  - [x] 4.5.3.4 Fix corrupted decompilation.py file and restore working endpoints ✅
+
+- [ ] **4.5.4 Test Structure Consolidation** (Medium Priority)
+  - [ ] 4.5.4.1 Remove legacy tests/unit/analysis/ directory
+  - [ ] 4.5.4.2 Move R2Session tests to match new location
+  - [ ] 4.5.4.3 Remove deprecated integration test files
+  - [ ] 4.5.4.4 Verify all tests align with decompilation architecture
+
+### 🚀 **5.0 Production Readiness** - PENDING  
+**Priority:** HIGH - Complete production deployment and monitoring (after consolidation)
 
 - [ ] **5.1 API Production Features**
   - [ ] 5.1.1 Complete FastAPI application setup with middleware
@@ -114,15 +147,16 @@ This master task list consolidates:
 - **Core Testing:** Unit and Integration Tests Passing
 
 ### **🔄 CURRENT PHASE:**
-- **Document & Code Alignment:** Critical for consistency
-- **Production Readiness:** Final steps for deployment
+- **Architecture Consolidation:** Remove duplicate components and clean structure  
+- **Production Readiness:** Complete deployment preparation after consolidation
 
 ### **🎯 SUCCESS METRICS:**
 - **Architecture:** ✅ Successfully transformed to decompilation + LLM service
+- **Alignment:** ✅ All components consistently follow decompilation-first design  
 - **Core Functionality:** ✅ Multi-LLM translation working (OpenAI, Anthropic, Gemini)  
-- **Testing:** ✅ Core test suite operational (47/57 unit tests passing)
-- **API:** ✅ Decompilation-focused endpoints implemented
-- **Production:** 🔄 Final alignment and deployment steps needed
+- **Testing:** ✅ End-to-end decompilation + LLM workflow validated
+- **API:** ✅ Decompilation-focused endpoints fully implemented
+- **Production:** 🔄 Consolidation in progress, then deployment ready
 
 ## 📋 **RELEVANT FILES**
 

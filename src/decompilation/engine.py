@@ -29,7 +29,7 @@ from ..models.decompilation.results import (
     DecompilationResult, FunctionTranslation, ImportTranslation, 
     StringTranslation, OverallSummary, LLMProviderMetadata
 )
-from ..analysis.engines.r2_integration import R2Session
+from .r2_session import R2Session
 from ..core.exceptions import BinaryAnalysisException
 
 logger = structlog.get_logger(__name__)

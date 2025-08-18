@@ -13,7 +13,7 @@ from pydantic import Field, field_validator, computed_field, ConfigDict
 from typing_extensions import Annotated
 
 from ..shared.base import BaseModel
-from ..shared.enums import Platform, FileFormat, JobStatus, AnalysisDepth, AnalysisFocus
+from ..shared.enums import Platform, FileFormat, JobStatus
 from ..decompilation.results import DecompilationDepth, TranslationDetail
 from ..analysis.serialization import AnalysisModelMixin, validate_string_list
 
@@ -1152,7 +1152,7 @@ class AnalysisConfigRequest(BaseModel, AnalysisModelMixin):
         config = {
             "analysis_depth": self.requested_depth or AnalysisDepth.STANDARD,
             "focus_areas": self.focus_areas or [AnalysisFocus.SECURITY, AnalysisFocus.FUNCTIONS],
-            "enable_security_scan": True,
+            "include_function_translations": True,
             "enable_function_analysis": True,
             "enable_string_extraction": True
         }

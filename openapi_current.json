@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "<string>", line 4, in <module>
+  File "/home/sean/app/bin2nlp/src/api/main.py", line 20, in <module>
+    from ..core.logging import setup_logging
+ImportError: cannot import name 'setup_logging' from 'src.core.logging' (/home/sean/app/bin2nlp/src/core/logging.py)

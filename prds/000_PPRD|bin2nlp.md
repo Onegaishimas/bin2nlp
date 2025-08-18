@@ -3,10 +3,10 @@
 ## Project Overview
 
 ### Project Name and Description
-**bin2nlp** - Binary Decompilation and Translation API Service that transforms binary reverse engineering from a manual, time-intensive process into an automated decompilation and natural language translation system, providing rich, human-readable explanations of binary functionality as structured data for external analysis tools.
+**bin2nlp** - Multi-LLM Binary Decompilation and Translation API Service that transforms binary reverse engineering from a manual, time-intensive process into an automated decompilation and multi-provider natural language translation system, leveraging OpenAI, Anthropic, Gemini, and Ollama LLM providers to provide rich, human-readable explanations of binary functionality as structured data for external analysis tools.
 
 ### Vision Statement
-To democratize binary understanding by providing an automated decompilation and translation service that converts binary code into rich, structured natural language explanations, creating high-quality raw datasets that power external analysis tools, security scanners, code quality assessments, and documentation systems.
+To democratize binary understanding by providing an automated decompilation and multi-LLM translation service that converts binary code into rich, structured natural language explanations using multiple AI providers (OpenAI, Anthropic, Gemini, Ollama), creating high-quality raw datasets that power external analysis tools, security scanners, code quality assessments, and documentation systems.
 
 ### Problem Statement and Opportunity
 Organizations and developers need structured, human-readable data about binary functionality for various analysis purposes, but current solutions force them to build complete analysis systems rather than focusing on their core expertise:
@@ -17,14 +17,14 @@ Organizations and developers need structured, human-readable data about binary f
 - **Translation Inconsistency:** Manual interpretation of binary behavior varies widely between analysts and tools, preventing reliable automation
 
 ### Success Definition and Key Outcomes
-**Primary Success:** Create a robust decompilation and translation service that generates high-quality, structured datasets combining assembly code with rich natural language explanations, enabling external tools to focus on specialized analysis rather than basic binary understanding.
+**Primary Success:** Create a robust multi-LLM decompilation and translation service that generates high-quality, structured datasets combining assembly code with rich natural language explanations from multiple AI providers, enabling external tools to focus on specialized analysis rather than basic binary understanding.
 
 **Key Outcomes:**
-- Transform hours/days of manual binary interpretation into minutes of automated decompilation + translation
-- Provide rich, structured datasets that power security analysis, code quality tools, and documentation systems
+- Transform hours/days of manual binary interpretation into minutes of automated decompilation + multi-LLM translation
+- Provide rich, structured datasets from multiple LLM providers that power security analysis, code quality tools, and documentation systems
 - Enable developers to build specialized analysis tools without reverse engineering expertise
-- Create standardized binary-to-language translation that external tools can reliably consume
-- Establish foundation for multi-LLM translation service suitable for commercial deployment
+- Create standardized binary-to-language translation with provider flexibility that external tools can reliably consume
+- Establish foundation for production-ready multi-LLM translation service with provider fallback and cost optimization
 
 ## Project Goals & Objectives
 
@@ -59,15 +59,17 @@ Organizations and developers need structured, human-readable data about binary f
 - Market validation: Positive feedback from early user testing with external analysis tools
 
 ### Timeline and Milestone Expectations
-**Phase 1 (Weeks 1-2): Decompilation Foundation**
+**Phase 1 (Weeks 1-2): Decompilation + Multi-LLM Foundation**
 - radare2 integration and binary format support
-- Multi-LLM provider framework (OpenAI API compatible, Anthropic Claude, Google Gemini)
+- Multi-LLM provider framework with unified interface (OpenAI API compatible, Anthropic Claude, Google Gemini, Ollama)
+- Provider selection, fallback, and cost management systems
 - Initial API structure and containerization
 
-**Phase 2 (Weeks 3-4): Translation Engine**
-- Rich natural language translation implementation
-- Function-by-function and overall summary generation
-- Performance optimization and multi-provider testing
+**Phase 2 (Weeks 3-4): Multi-LLM Translation Engine**
+- Rich natural language translation implementation across all LLM providers
+- Function-by-function and overall summary generation with provider-specific optimizations
+- Performance optimization, multi-provider testing, and quality comparison
+- Cost tracking and usage management across LLM providers
 
 **Phase 3 (Week 5+): Validation & Feedback**
 - Real-world testing with target file types
@@ -169,15 +171,17 @@ Organizations and developers need structured, human-readable data about binary f
 ### Dependencies and Assumptions
 **Technical Dependencies:**
 - radare2 availability and stability across platforms
-- Ollama local LLM performance and accuracy
+- Multi-LLM provider API availability and reliability (OpenAI, Anthropic, Google, Ollama)
 - Container runtime environment support
-- Python ecosystem stability for API framework
+- Python ecosystem stability for API framework and LLM client libraries
+- Network connectivity for cloud-based LLM provider APIs
 
 **Key Assumptions:**
-- Local Ollama instance provides sufficient LLM capability for meaningful translations
+- Multi-LLM provider approach provides superior translation quality and reliability compared to single-provider solutions
+- Cloud-based LLM APIs (OpenAI, Anthropic, Google) combined with local Ollama deployment offers optimal flexibility
 - radare2 can reliably handle target binary formats and file sizes
-- 2-4 week timeline sufficient for robust prototype development
-- Market demand exists for automated binary analysis solutions
+- Multi-provider framework can be implemented within 2-4 week prototype timeline
+- Market demand exists for provider-flexible automated binary analysis solutions
 
 ## High-Level Requirements
 
@@ -232,23 +236,30 @@ Organizations and developers need structured, human-readable data about binary f
 - Supports Windows (.exe, .dll), Linux (.elf, .so), macOS (.app, .dylib), and mobile formats
 - Provides reliable processing for files up to 100MB with performance targets
 
-**2. Rich Multi-LLM Natural Language Translation**
-- Connects to multiple LLM providers (OpenAI API compatible, Anthropic Claude, Google Gemini) for comprehensive assembly-to-language conversion
-- Generates rich, structured datasets combining raw assembly code with detailed natural language explanations
-- Provides function-by-function analysis with contextual understanding of program flow and purpose
-- Creates overall program summaries explaining high-level functionality and architectural patterns
-- Focuses on detailed, actionable explanations suitable for external analysis tool consumption
+**2. Multi-LLM Provider Translation Framework**
+- **Unified Provider Interface:** Connects to multiple LLM providers through standardized abstraction layer
+- **OpenAI API Compatible:** Full support for OpenAI models, Ollama local deployment, vLLM serving, and other compatible endpoints
+- **Anthropic Claude Integration:** Native Claude API support for comprehensive code analysis and documentation
+- **Google Gemini Support:** Gemini API integration for alternative translation perspectives and multimodal capabilities
+- **Provider Management:** Intelligent provider selection, automatic failover, cost optimization, and usage tracking
+- **Rich Translation Output:** Generates structured datasets combining raw assembly code with detailed natural language explanations from chosen LLM provider
+- **Quality Assurance:** Comparative analysis across providers with quality scoring and provider-specific prompt optimization
 
 **3. Configurable Translation Depth**
 - Quick Overview: High-level functionality summary with basic function descriptions (30 seconds - 2 minutes)
 - Standard Translation: Detailed function-by-function explanations with import/export analysis (2-10 minutes)
 - Comprehensive Translation: In-depth code explanations with overall program flow and architectural insights (10-20 minutes)
 
-**4. Multi-LLM Provider Integration**
-- OpenAI API compatible endpoints supporting OpenAI GPT models, Ollama local models, vLLM serving, and other compatible services
-- Anthropic Claude API integration for comprehensive code analysis and documentation
-- Google Gemini API support for alternative translation perspectives and validation
-- Configurable provider selection with automatic failover and load balancing capabilities
+**4. Production-Ready Multi-LLM Provider Integration**
+- **OpenAI API Ecosystem:** Full support for OpenAI models, Azure OpenAI, Ollama local deployment, vLLM serving, LM Studio, and custom OpenAI-compatible endpoints
+- **Anthropic Claude Integration:** Native Claude API with constitutional AI features and extended context windows (200k+ tokens)
+- **Google Gemini Support:** Gemini API with multimodal capabilities and competitive pricing
+- **Provider Management Features:**
+  - Intelligent provider selection based on cost, performance, and availability
+  - Automatic failover and circuit breaker patterns for reliability
+  - Cost tracking, usage limits, and budget management across all providers
+  - Health monitoring and performance metrics for each provider
+  - Provider-specific prompt optimization and response caching
 
 **5. RESTful API Interface**
 - Clean HTTP endpoints for file upload and analysis retrieval
@@ -481,5 +492,5 @@ Organizations and developers need structured, human-readable data about binary f
 **Document Status:** ✅ Complete - Ready for Architecture Decision Record (ADR) creation  
 **Next Document:** `000_PADR|bin2nlp.md` using `@instruct/002_create-adr.md`  
 **Related Documents:** None (foundational document)  
-**Last Updated:** 2025-08-14  
-**Document Version:** 1.0
+**Last Updated:** 2025-08-18  
+**Document Version:** 1.1 - Updated to emphasize multi-LLM provider architecture and production-ready translation service

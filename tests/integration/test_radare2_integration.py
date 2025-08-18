@@ -21,7 +21,7 @@ import struct
 import os
 
 from src.decompilation.engine import DecompilationEngine
-from src.analysis.engines.r2_integration import R2Session
+from src.decompilation.r2_session import R2Session
 from src.core.config import get_settings
 from src.models.decompilation.results import (
     DecompilationResult,

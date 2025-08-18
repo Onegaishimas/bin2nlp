@@ -5,11 +5,7 @@ This module provides data models for API endpoints including request
 validation, response formatting, and error handling.
 """
 
-from .analysis import (
-    DecompilationRequest, DecompilationSubmissionResponse,
-    AnalysisSummaryResponse, AnalysisDetailResponse,
-    FileUploadRequest, FileUploadResponse, AnalysisConfigRequest
-)
+# Legacy analysis models removed - use decompilation models instead
 from .jobs import (
     JobCreationRequest, JobStatusResponse, JobListResponse,
     JobActionRequest, JobActionResponse
@@ -20,15 +16,6 @@ from .auth import (
 )
 
 __all__ = [
-    # Analysis API models (decompilation-focused)
-    "DecompilationRequest",
-    "DecompilationSubmissionResponse", 
-    "AnalysisSummaryResponse",
-    "AnalysisDetailResponse",
-    "FileUploadRequest",
-    "FileUploadResponse",
-    "AnalysisConfigRequest",
-    
     # Job API models
     "JobCreationRequest",
     "JobStatusResponse",

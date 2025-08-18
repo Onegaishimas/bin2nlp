@@ -29,7 +29,7 @@ from src.models.analysis.basic_results import (
     BasicStringInfo
 )
 from src.models.shared.enums import FileFormat, Platform
-from src.analysis.engines.r2_integration import R2Session
+from src.decompilation.r2_session import R2Session
 
 
 class TestDecompilationConfig:

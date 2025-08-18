@@ -1,0 +1,342 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bin2nlp"
+version = "1.0.0"
+description = "Binary Analysis to Natural Language Processing API"
+readme = "README.md"
+authors = [
+    {name = "bin2nlp Development Team", email = "dev@bin2nlp.com"}
+]
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+keywords = [
+    "binary-analysis", "reverse-engineering", "security", "api", 
+    "radare2", "malware-analysis", "nlp", "fastapi"
+]
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "redis>=5.0.0",
+    "r2pipe>=1.8.0",
+    "structlog>=23.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-mock>=3.12.0",
+    "pytest-timeout>=2.2.0",
+    "pytest-xdist>=3.5.0",
+    "black>=23.11.0",
+    "isort>=5.12.0",
+    "mypy>=1.7.0",
+    "flake8>=6.1.0",
+    "bandit>=1.7.5",
+    "pre-commit>=3.6.0",
+]
+test = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-mock>=3.12.0",
+    "pytest-timeout>=2.2.0",
+]
+analysis = [
+    "r2pipe>=1.8.0",
+    "python-magic>=0.4.27",
+    "pefile>=2023.2.7",
+    "pyelftools>=0.30",
+]
+docs = [
+    "mkdocs>=1.5.3",
+    "mkdocs-material>=9.4.0",
+    "mkdocstrings[python]>=0.24.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/bin2nlp"
+Documentation = "https://bin2nlp.readthedocs.io"
+Repository = "https://github.com/yourusername/bin2nlp.git"
+Issues = "https://github.com/yourusername/bin2nlp/issues"
+Changelog = "https://github.com/yourusername/bin2nlp/blob/main/CHANGELOG.md"
+
+[project.scripts]
+bin2nlp = "src.api.main:cli"
+
+# Black configuration
+[tool.black]
+line-length = 100
+target-version = ['py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | venv
+  | env
+  | _build
+  | buck-out
+  | build
+  | dist
+  | migrations
+)/
+'''
+preview = true
+
+# isort configuration
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 100
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+src_paths = ["src", "tests"]
+known_first_party = ["src"]
+known_third_party = [
+    "fastapi", "pydantic", "redis", "r2pipe", "structlog", 
+    "pytest", "uvicorn", "httpx"
+]
+sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
+force_sort_within_sections = true
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+strict_optional = true
+check_untyped_defs = true
+disallow_any_generics = true
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_subclassing_any = true
+no_implicit_optional = true
+no_implicit_reexport = true
+show_error_codes = true
+show_column_numbers = true
+pretty = true
+
+# Module-specific overrides
+[[tool.mypy.overrides]]
+module = [
+    "r2pipe.*",
+    "redis.*",
+    "structlog.*",
+    "uvicorn.*",
+    "magic.*",
+    "pefile.*",
+    "elftools.*"
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+# Pytest configuration (also in pytest.ini)
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--verbose",
+    "--tb=short",
+    "--color=yes",
+]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "unit: Unit tests (fast, isolated, no external dependencies)",
+    "integration: Integration tests (slower, may use external services)",
+    "performance: Performance and benchmark tests",
+    "slow: Tests that take a long time to run",
+    "redis: Tests that require Redis connection",
+    "radare2: Tests that require radare2 installation",
+    "api: API endpoint tests",
+    "models: Data model tests",
+    "security: Security-related tests",
+    "smoke: Smoke tests for basic functionality",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:aioredis.*",
+    "ignore::DeprecationWarning:redis.*",
+    "ignore::PendingDeprecationWarning:pydantic.*",
+    "ignore::UserWarning:structlog.*",
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/venv/*",
+    "*/env/*",
+    "*/.env/*",
+    "*/site-packages/*",
+    "*/__pycache__/*",
+    "*/migrations/*",
+]
+branch = true
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_empty = true
+precision = 2
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+title = "bin2nlp Test Coverage Report"
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+# Bandit security linting configuration
+[tool.bandit]
+exclude_dirs = ["tests", "venv", "env", ".env"]
+skips = ["B101", "B601"]  # Skip assert_used and shell_injection_process_start in tests
+
+# Flake8 configuration (in setup.cfg or .flake8 file)
+# Note: Flake8 doesn't support pyproject.toml yet, so we'll create setup.cfg
+
+# Ruff configuration (modern, fast Python linter)
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+select = [
+    # Pyflakes
+    "F",
+    # pycodestyle
+    "E", "W",
+    # isort
+    "I",
+    # pep8-naming
+    "N",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-bandit
+    "S",
+    # flake8-comprehensions
+    "C4",
+    # flake8-debugger
+    "T10",
+    # flake8-simplify
+    "SIM",
+    # flake8-unused-arguments
+    "ARG",
+    # flake8-use-pathlib
+    "PTH",
+]
+ignore = [
+    # Allow non-abstract empty methods in abstract base classes
+    "B027",
+    # Allow boolean positional values in function calls
+    "FBT003",
+    # Ignore checks for possible passwords
+    "S105", "S106", "S107",
+    # Allow assert statements in tests
+    "S101",
+]
+
+[tool.ruff.per-file-ignores]
+"tests/**/*" = ["S101", "ARG", "FBT"]
+
+[tool.ruff.mccabe]
+max-complexity = 10
+
+[tool.ruff.isort]
+known-first-party = ["src"]
+
+# Pre-commit hooks configuration
+[tool.pre-commit]
+repos = [
+    {
+        repo = "https://github.com/pre-commit/pre-commit-hooks",
+        rev = "v4.5.0",
+        hooks = [
+            {id = "trailing-whitespace"},
+            {id = "end-of-file-fixer"},
+            {id = "check-yaml"},
+            {id = "check-toml"},
+            {id = "check-json"},
+            {id = "check-added-large-files"},
+            {id = "check-merge-conflict"},
+            {id = "debug-statements"},
+        ]
+    },
+    {
+        repo = "https://github.com/psf/black",
+        rev = "23.12.1",
+        hooks = [{id = "black"}]
+    },
+    {
+        repo = "https://github.com/pycqa/isort",
+        rev = "5.13.2",
+        hooks = [{id = "isort"}]
+    },
+    {
+        repo = "https://github.com/pycqa/flake8",
+        rev = "7.0.0",
+        hooks = [{id = "flake8"}]
+    },
+    {
+        repo = "https://github.com/pre-commit/mirrors-mypy",
+        rev = "v1.8.0",
+        hooks = [{id = "mypy", additional_dependencies = ["types-all"]}]
+    },
+    {
+        repo = "https://github.com/PyCQA/bandit",
+        rev = "1.7.6",
+        hooks = [{id = "bandit", args = ["-c", "pyproject.toml"]}]
+    },
+]

@@ -1,8 +1,8 @@
 """
-Unit tests for analysis result models.
+Unit tests for decompilation result models.
 
-Tests the AnalysisResult, SecurityFindings, FunctionInfo, and related
-functionality for representing binary analysis results.
+Tests the DecompilationResult, FunctionTranslation, ImportTranslation and related
+functionality for representing binary decompilation and LLM translation results.
 """
 
 import pytest
@@ -10,27 +10,32 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 from typing import List, Dict, Any
 
-from src.models.shared.enums import JobStatus, AnalysisDepth, FileFormat, Platform
-from src.models.analysis.results import (
-    AnalysisResult, SecurityFindings, FunctionInfo, ImportInfo, 
-    StringExtraction
+from src.models.shared.enums import JobStatus, FileFormat, Platform
+from src.models.decompilation.results import (
+    DecompilationResult, FunctionTranslation, ImportTranslation, 
+    StringTranslation, OverallSummary, DecompilationDepth, TranslationDetail,
+    LLMProviderMetadata
 )
 
 
-class TestFunctionInfo:
-    """Test cases for FunctionInfo model."""
+class TestFunctionTranslation:
+    """Test cases for FunctionTranslation model."""
     
     def test_basic_instantiation(self):
-        """Test basic function info creation."""
-        func_info = FunctionInfo(
+        """Test basic function translation creation."""
+        func_translation = FunctionTranslation(
             name="main",
             address="0x401000",
-            size=256
+            size=256,
+            natural_language="This is the main entry point of the program.",
+            purpose="Program initialization and execution"
         )
         
-        assert func_info.name == "main"
-        assert func_info.address == "0x401000"
-        assert func_info.size == 256
+        assert func_translation.name == "main"
+        assert func_translation.address == "0x401000"
+        assert func_translation.size == 256
+        assert func_translation.natural_language == "This is the main entry point of the program."
+        assert func_translation.purpose == "Program initialization and execution"
         assert func_info.calls_to == []
         assert func_info.calls_from == []
         assert func_info.is_exported is False

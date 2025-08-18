@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock, AsyncMock, call
 from typing import Any, Dict, List
 
-from src.analysis.engines.r2_integration import (
+from src.decompilation.r2_session import (
     R2Session,
     R2SessionState,
     R2Command,
