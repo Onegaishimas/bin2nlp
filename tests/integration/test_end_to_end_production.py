@@ -53,21 +53,21 @@ def sample_binary():
     """Create a sample binary file for testing."""
     # Simple ELF header + minimal content
     elf_header = (
-        b'\x7fELF'  # Magic number
-        b'\x02\x01\x01\x00'  # 64-bit, little-endian, current version, generic ABI
-        b'\x00' * 8  # Padding
-        b'\x02\x00'  # Executable file type
-        b'\x3e\x00'  # AMD64 architecture  
-        b'\x01\x00\x00\x00'  # Version 1
-        b'\x00\x10\x40\x00\x00\x00\x00\x00'  # Entry point
-        b'\x40\x00\x00\x00\x00\x00\x00\x00'  # Program header offset
-        b'\x00\x00\x00\x00\x00\x00\x00\x00'  # Section header offset
-        b'\x00\x00\x00\x00'  # Flags
-        b'\x40\x00'  # ELF header size
-        b'\x38\x00'  # Program header entry size
-        b'\x01\x00'  # Program header entries
-        b'\x40\x00'  # Section header entry size
-        b'\x00\x00'  # Section header entries
+        b'\x7fELF' +  # Magic number
+        b'\x02\x01\x01\x00' +  # 64-bit, little-endian, current version, generic ABI
+        b'\x00' * 8 +  # Padding
+        b'\x02\x00' +  # Executable file type
+        b'\x3e\x00' +  # AMD64 architecture  
+        b'\x01\x00\x00\x00' +  # Version 1
+        b'\x00\x10\x40\x00\x00\x00\x00\x00' +  # Entry point
+        b'\x40\x00\x00\x00\x00\x00\x00\x00' +  # Program header offset
+        b'\x00\x00\x00\x00\x00\x00\x00\x00' +  # Section header offset
+        b'\x00\x00\x00\x00' +  # Flags
+        b'\x40\x00' +  # ELF header size
+        b'\x38\x00' +  # Program header entry size
+        b'\x01\x00' +  # Program header entries
+        b'\x40\x00' +  # Section header entry size
+        b'\x00\x00' +  # Section header entries
         b'\x00\x00'  # String table index
     )
     
