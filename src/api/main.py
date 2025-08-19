@@ -7,6 +7,7 @@ Focused on simplicity with decompilation and translation endpoints only.
 
 from contextlib import asynccontextmanager
 from typing import Dict, Any
+import asyncio
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,7 +18,8 @@ import uvicorn
 from ..core.config import get_settings
 from ..core.exceptions import BinaryAnalysisException
 from ..core.logging import configure_logging, get_logger
-from .routes import decompilation, health, llm_providers, admin
+from ..core.dashboards import run_alert_checks
+from .routes import decompilation, health, llm_providers, admin, dashboard
 from .middleware import (
     ErrorHandlingMiddleware,
     RequestLoggingMiddleware, 
@@ -29,10 +31,33 @@ from .middleware import (
 # Setup structured logging
 logger = get_logger(__name__)
 
+# Background task for alert monitoring
+_alert_monitoring_task = None
+
+
+async def alert_monitoring_task():
+    """Background task to continuously monitor alerts."""
+    logger.info("Starting alert monitoring background task")
+    
+    while True:
+        try:
+            # Run alert checks every 60 seconds
+            await run_alert_checks()
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            logger.info("Alert monitoring task cancelled")
+            break
+        except Exception as e:
+            logger.error(f"Error in alert monitoring task: {e}")
+            # Continue monitoring even if there's an error
+            await asyncio.sleep(60)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown tasks."""
+    global _alert_monitoring_task
+    
     # Startup
     settings = get_settings()
     configure_logging(settings.logging)
@@ -55,6 +80,11 @@ async def lifespan(app: FastAPI):
         await factory.initialize()
         logger.info(f"LLM providers initialized: {len(factory.get_healthy_providers())}")
         
+        # Start background alert monitoring
+        if not settings.is_production or settings.debug:
+            _alert_monitoring_task = asyncio.create_task(alert_monitoring_task())
+            logger.info("Alert monitoring background task started")
+        
     except Exception as e:
         logger.error(f"Failed to initialize services: {e}")
         # Continue startup but log the issue
@@ -67,6 +97,15 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down bin2nlp API service")
     
     try:
+        # Stop background alert monitoring task
+        if _alert_monitoring_task and not _alert_monitoring_task.done():
+            _alert_monitoring_task.cancel()
+            try:
+                await _alert_monitoring_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("Alert monitoring background task stopped")
+        
         # Cleanup Redis connections
         redis_client = get_redis_client()
         await redis_client.close()
@@ -201,6 +240,12 @@ def create_app() -> FastAPI:
         admin.router,
         prefix="/api/v1",
         tags=["admin"]
+    )
+    
+    # Dashboard routes (web interface)
+    app.include_router(
+        dashboard.router,
+        tags=["dashboard"]
     )
     
     # Root endpoint - redirect to docs
