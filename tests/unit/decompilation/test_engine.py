@@ -32,6 +32,26 @@ from src.models.shared.enums import FileFormat, Platform
 from src.decompilation.r2_session import R2Session
 
 
+# Module-level fixtures available to all test classes
+@pytest.fixture
+def test_file_path():
+    """Create temporary test file."""
+    with tempfile.NamedTemporaryFile(suffix='.exe', delete=False) as tmp_file:
+        # Create a mock PE file with proper header
+        pe_header = b'MZ' + b'\x00' * 58 + b'\x80\x00\x00\x00'  # DOS header
+        pe_header += b'\x00' * (0x80 - len(pe_header))  # Padding to PE header offset
+        pe_header += b'PE\x00\x00'  # PE signature
+        pe_header += b'\x00' * 1000  # Additional content
+        tmp_file.write(pe_header)
+        tmp_file.flush()
+        yield tmp_file.name
+    
+    try:
+        os.unlink(tmp_file.name)
+    except FileNotFoundError:
+        pass
+
+
 class TestDecompilationConfig:
     """Test DecompilationConfig validation."""
     
@@ -95,25 +115,14 @@ class TestDecompilationEngine:
         return DecompilationEngine(config)
     
     @pytest.fixture
-    def test_file_path(self):
-        """Create temporary test file."""
-        with tempfile.NamedTemporaryFile(suffix='.exe', delete=False) as tmp_file:
-            # Create a mock PE file with proper header
-            pe_header = b'MZ' + b'\x00' * 58 + b'\x80\x00\x00\x00'  # DOS header
-            pe_header += b'\x00' * (0x80 - len(pe_header))  # Padding to PE header offset
-            pe_header += b'PE\x00\x00'  # PE signature
-            pe_header += b'\x00' * 1000  # Additional content
-            tmp_file.write(pe_header)
-            tmp_file.flush()
-            yield tmp_file.name
-        
-        try:
-            os.unlink(tmp_file.name)
-        except FileNotFoundError:
-            pass
+    def mock_r2_session(self):
+        """Create mock R2Session for testing."""
+        return self.create_mock_r2_session()
     
     def create_mock_r2_session(self, functions=None, imports=None, strings=None):
         """Helper to create mock R2Session with realistic data."""
+        from unittest.mock import AsyncMock
+        
         mock_session = AsyncMock(spec=R2Session)
         
         # Default realistic function data
@@ -137,16 +146,17 @@ class TestDecompilationEngine:
                 {"string": "Error", "vaddr": 0x403010, "size": 5, "section": ".rdata", "type": "ascii"}
             ]
         
-        mock_session.extract_functions.return_value = functions
-        mock_session.get_imports.return_value = imports  
-        mock_session.get_strings.return_value = strings
-        mock_session.get_function_assembly.return_value = (
+        # Set up async method return values
+        mock_session.extract_functions = AsyncMock(return_value=functions)
+        mock_session.get_imports = AsyncMock(return_value=imports)
+        mock_session.get_strings = AsyncMock(return_value=strings)
+        mock_session.get_function_assembly = AsyncMock(return_value=(
             "0x00401000      push    rbp\n"
             "0x00401001      mov     rbp, rsp\n"
             "0x00401004      call    sub_401080\n"
             "0x00401009      pop     rbp\n"
             "0x0040100a      ret\n"
-        )
+        ))
         
         return mock_session
     
@@ -418,7 +428,7 @@ class TestDecompilationEngine:
         assert engine._detect_platform(FileFormat.PE) == Platform.WINDOWS
         assert engine._detect_platform(FileFormat.ELF) == Platform.LINUX
         assert engine._detect_platform(FileFormat.MACHO) == Platform.MACOS
-        assert engine._detect_platform(FileFormat.JAVA_CLASS) == Platform.JAVA
+        assert engine._detect_platform(FileFormat.JAVA) == Platform.JAVA
         assert engine._detect_platform(FileFormat.UNKNOWN) == Platform.UNKNOWN
     
     @pytest.mark.asyncio
@@ -542,16 +552,22 @@ class TestEdgeCasesAndErrorHandling:
         with patch('src.decompilation.engine.R2Session') as mock_r2_class:
             mock_r2_session = AsyncMock(spec=R2Session)
             
-            def mock_cmd_json_side_effect(cmd):
-                if cmd == "aflj":  # Functions work
-                    return [{"name": "main", "offset": 0x1000, "size": 100}]
-                elif cmd == "iij":  # Imports fail
-                    raise Exception("Import extraction failed")
-                elif cmd == "izj":  # Strings work
-                    return [{"string": "test", "vaddr": 0x1000, "size": 4, "section": ".data", "type": "ascii"}]
-                return []
+            # Mock successful functions extraction
+            mock_r2_session.extract_functions.return_value = [
+                {"name": "main", "offset": 0x1000, "size": 100}
+            ]
             
-            mock_r2_session.cmd_json.side_effect = mock_cmd_json_side_effect
+            # Mock assembly extraction (needed for functions)
+            mock_r2_session.get_function_assembly.return_value = "push ebp\nmov ebp, esp"
+            
+            # Mock failed imports extraction
+            mock_r2_session.get_imports.side_effect = Exception("Import extraction failed")
+            
+            # Mock successful strings extraction
+            mock_r2_session.get_strings.return_value = [
+                {"string": "test", "vaddr": 0x1000, "size": 4, "section": ".data", "type": "ascii"}
+            ]
+            
             mock_r2_class.return_value.__aenter__.return_value = mock_r2_session
             
             result = await engine.decompile_binary(test_file_path)
@@ -568,11 +584,19 @@ class TestEdgeCasesAndErrorHandling:
         """Test handling of assembly code extraction failures."""
         with patch('src.decompilation.engine.R2Session') as mock_r2_class:
             mock_r2_session = AsyncMock(spec=R2Session)
-            mock_r2_session.cmd_json.return_value = [
+            
+            # Mock successful function extraction
+            mock_r2_session.extract_functions.return_value = [
                 {"name": "main", "offset": 0x1000, "size": 100}
             ]
+            
+            # Mock successful imports and strings
+            mock_r2_session.get_imports.return_value = []
+            mock_r2_session.get_strings.return_value = []
+            
             # Assembly code extraction fails
-            mock_r2_session.cmd.side_effect = Exception("Assembly extraction failed")
+            mock_r2_session.get_function_assembly.side_effect = Exception("Assembly extraction failed")
+            
             mock_r2_class.return_value.__aenter__.return_value = mock_r2_session
             
             result = await engine.decompile_binary(test_file_path)
@@ -587,16 +611,20 @@ class TestEdgeCasesAndErrorHandling:
         with patch('src.decompilation.engine.R2Session') as mock_r2_class:
             mock_r2_session = AsyncMock(spec=R2Session)
             
-            def mock_cmd_json_side_effect(cmd):
-                if cmd == "aflj":  # Return malformed function data
-                    return [
-                        {"name": "main"},  # Missing offset and size
-                        {"offset": 0x1000, "size": 100},  # Missing name
-                        {"name": "valid_func", "offset": 0x2000, "size": 50}  # Valid
-                    ]
-                return []
+            # Return malformed function data
+            mock_r2_session.extract_functions.return_value = [
+                {"name": "main"},  # Missing offset and size
+                {"offset": 0x1000, "size": 100},  # Missing name
+                {"name": "valid_func", "offset": 0x2000, "size": 50}  # Valid
+            ]
             
-            mock_r2_session.cmd_json.side_effect = mock_cmd_json_side_effect
+            # Mock assembly extraction (needed for functions)
+            mock_r2_session.get_function_assembly.return_value = "push ebp\nmov ebp, esp"
+            
+            # Mock successful imports and strings
+            mock_r2_session.get_imports.return_value = []
+            mock_r2_session.get_strings.return_value = []
+            
             mock_r2_class.return_value.__aenter__.return_value = mock_r2_session
             
             result = await engine.decompile_binary(test_file_path)

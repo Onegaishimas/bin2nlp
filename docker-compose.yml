@@ -1,0 +1,178 @@
+# Docker Compose for bin2nlp Production Deployment
+# Deploys API service with Redis cache and monitoring
+
+version: '3.8'
+
+services:
+  # Main API service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: bin2nlp-api
+    ports:
+      - "8000:8000"
+    environment:
+      # Application settings
+      - APP_ENV=production
+      - DEBUG=false
+      - WORKERS=4
+      
+      # Database/Cache
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      
+      # API Configuration
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_CORS_ORIGINS=["http://localhost:3000", "https://yourdomain.com"]
+      
+      # Security
+      - API_KEY_PREFIX=ak_
+      - API_KEY_EXPIRY_DAYS=365
+      - ENFORCE_HTTPS=false
+      
+      # File Processing
+      - MAX_FILE_SIZE_MB=100
+      - UPLOAD_TIMEOUT_SECONDS=300
+      - MAX_TIMEOUT_SECONDS=1800
+      
+      # LLM Provider Settings (set your API keys)
+      - LLM_ENABLED_PROVIDERS=["openai", "anthropic", "gemini"]
+      - LLM_DEFAULT_PROVIDER=openai
+      - LLM_REQUESTS_PER_MINUTE=60
+      - LLM_TOKENS_PER_MINUTE=90000
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      
+      # Rate Limiting
+      - DEFAULT_RATE_LIMIT_PER_MINUTE=100
+      - DEFAULT_RATE_LIMIT_PER_DAY=10000
+      
+      # Logging
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+      
+    volumes:
+      # Persistent storage for temporary files and logs
+      - api_uploads:/tmp/uploads
+      - api_logs:/var/log/app
+      
+    depends_on:
+      redis:
+        condition: service_healthy
+        
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+      
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Redis cache service
+  redis:
+    image: redis:7.2-alpine
+    container_name: bin2nlp-redis
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server 
+      --maxmemory 256mb 
+      --maxmemory-policy allkeys-lru 
+      --appendonly yes
+      --appendfsync everysec
+    volumes:
+      - redis_data:/data
+      - ./config/redis.conf:/etc/redis/redis.conf:ro
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+      
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # Background worker for async processing (optional)
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: bin2nlp-worker
+    environment:
+      - APP_ENV=production
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - WORKER_CONCURRENCY=2
+    command: python -m src.workers.decompilation_worker
+    volumes:
+      - api_uploads:/tmp/uploads
+      - api_logs:/var/log/app
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+# Named volumes for persistent data
+volumes:
+  redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/redis
+      
+  api_uploads:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind  
+      device: ./data/uploads
+      
+  api_logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/logs
+
+# Custom network for service communication
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

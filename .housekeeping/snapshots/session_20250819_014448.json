@@ -1,0 +1,794 @@
+{
+  "session_id": "session_20250819_014448",
+  "timestamp": "2025-08-19T01:44:48.964504+00:00",
+  "project_name": "bin2nlp",
+  "current_phase": "** 🚀 **PRODUCTION READINESS PHASE 5.0** - Docker deployment ready, monitoring setup next",
+  "active_task": "** Monitoring & observability setup, final operational documentation",
+  "completed_tasks": [],
+  "pending_tasks": [],
+  "current_files": [
+    "/home/sean/app/bin2nlp/tests/__init__.py",
+    "/home/sean/app/bin2nlp/scripts/housekeeping.py",
+    "/home/sean/app/bin2nlp/scripts/clear-and-resume.py",
+    "/home/sean/app/bin2nlp/src/cli.py",
+    "/home/sean/app/bin2nlp/tests/unit/__init__.py",
+    "/home/sean/app/bin2nlp/tests/fixtures/test_binaries.py",
+    "/home/sean/app/bin2nlp/tests/fixtures/assembly_samples.py",
+    "/home/sean/app/bin2nlp/tests/fixtures/llm_responses.py",
+    "/home/sean/app/bin2nlp/tests/integration/test_radare2_integration.py",
+    "/home/sean/app/bin2nlp/tests/integration/test_multi_format_multi_llm.py",
+    "/home/sean/app/bin2nlp/tests/integration/test_analysis_engine.py",
+    "/home/sean/app/bin2nlp/tests/integration/test_radare2_availability.py",
+    "/home/sean/app/bin2nlp/tests/integration/__init__.py",
+    "/home/sean/app/bin2nlp/tests/integration/test_api_integration.py",
+    "/home/sean/app/bin2nlp/tests/integration/test_end_to_end_workflow.py",
+    "/home/sean/app/bin2nlp/tests/integration/test_end_to_end_production.py",
+    "/home/sean/app/bin2nlp/tests/integration/test_ollama_integration.py",
+    "/home/sean/app/bin2nlp/tests/integration/test_llm_provider_integration.py",
+    "/home/sean/app/bin2nlp/tests/integration/test_redis_integration.py",
+    "/home/sean/app/bin2nlp/tests/performance/test_llm_performance.py",
+    "/home/sean/app/bin2nlp/tests/unit/decompilation/__init__.py",
+    "/home/sean/app/bin2nlp/tests/unit/decompilation/test_engine.py",
+    "/home/sean/app/bin2nlp/tests/unit/decompilation/test_r2_session.py",
+    "/home/sean/app/bin2nlp/tests/unit/llm/test_openai_provider.py",
+    "/home/sean/app/bin2nlp/tests/unit/llm/__init__.py",
+    "/home/sean/app/bin2nlp/tests/unit/llm/test_base.py",
+    "/home/sean/app/bin2nlp/tests/unit/llm/test_gemini_provider.py",
+    "/home/sean/app/bin2nlp/tests/unit/llm/test_error_handling.py",
+    "/home/sean/app/bin2nlp/tests/unit/llm/test_anthropic_provider.py",
+    "/home/sean/app/bin2nlp/tests/unit/llm/test_factory.py",
+    "/home/sean/app/bin2nlp/tests/unit/cache/test_result_cache.py",
+    "/home/sean/app/bin2nlp/tests/unit/cache/__init__.py",
+    "/home/sean/app/bin2nlp/tests/unit/cache/test_base.py",
+    "/home/sean/app/bin2nlp/tests/unit/cache/test_rate_limiter.py",
+    "/home/sean/app/bin2nlp/tests/unit/cache/test_job_queue.py",
+    "/home/sean/app/bin2nlp/tests/unit/cache/test_session.py",
+    "/home/sean/app/bin2nlp/tests/unit/models/__init__.py",
+    "/home/sean/app/bin2nlp/tests/unit/models/analysis/__init__.py",
+    "/home/sean/app/bin2nlp/tests/unit/models/analysis/test_results.py",
+    "/home/sean/app/bin2nlp/tests/unit/models/analysis/test_config.py",
+    "/home/sean/app/bin2nlp/tests/unit/models/analysis/test_files.py",
+    "/home/sean/app/bin2nlp/tests/unit/models/decompilation/__init__.py",
+    "/home/sean/app/bin2nlp/tests/unit/models/decompilation/test_results.py",
+    "/home/sean/app/bin2nlp/tests/unit/models/shared/__init__.py",
+    "/home/sean/app/bin2nlp/tests/unit/models/shared/test_base.py",
+    "/home/sean/app/bin2nlp/tests/unit/models/shared/test_enums.py",
+    "/home/sean/app/bin2nlp/tests/unit/models/api/test_auth.py",
+    "/home/sean/app/bin2nlp/tests/unit/models/api/__init__.py",
+    "/home/sean/app/bin2nlp/tests/unit/models/api/test_jobs.py",
+    "/home/sean/app/bin2nlp/src/analysis/__init__.py",
+    "/home/sean/app/bin2nlp/src/analysis/error_recovery.py",
+    "/home/sean/app/bin2nlp/src/decompilation/__init__.py",
+    "/home/sean/app/bin2nlp/src/decompilation/engine.py",
+    "/home/sean/app/bin2nlp/src/decompilation/r2_session.py",
+    "/home/sean/app/bin2nlp/src/llm/__init__.py",
+    "/home/sean/app/bin2nlp/src/llm/base.py",
+    "/home/sean/app/bin2nlp/src/cache/__init__.py",
+    "/home/sean/app/bin2nlp/src/cache/rate_limiter.py",
+    "/home/sean/app/bin2nlp/src/cache/base.py",
+    "/home/sean/app/bin2nlp/src/cache/result_cache.py",
+    "/home/sean/app/bin2nlp/src/cache/job_queue.py",
+    "/home/sean/app/bin2nlp/src/cache/session.py",
+    "/home/sean/app/bin2nlp/src/api/main.py",
+    "/home/sean/app/bin2nlp/src/api/__init__.py",
+    "/home/sean/app/bin2nlp/src/core/logging.py",
+    "/home/sean/app/bin2nlp/src/core/exceptions.py",
+    "/home/sean/app/bin2nlp/src/core/__init__.py",
+    "/home/sean/app/bin2nlp/src/core/config_cli.py",
+    "/home/sean/app/bin2nlp/src/core/metrics.py",
+    "/home/sean/app/bin2nlp/src/core/dashboards.py",
+    "/home/sean/app/bin2nlp/src/core/config_validation.py",
+    "/home/sean/app/bin2nlp/src/core/circuit_breaker.py",
+    "/home/sean/app/bin2nlp/src/core/config.py",
+    "/home/sean/app/bin2nlp/src/core/utils.py",
+    "/home/sean/app/bin2nlp/src/analysis/workers/__init__.py",
+    "/home/sean/app/bin2nlp/src/analysis/engines/__init__.py",
+    "/home/sean/app/bin2nlp/src/analysis/engines/base.py",
+    "/home/sean/app/bin2nlp/src/llm/providers/__init__.py",
+    "/home/sean/app/bin2nlp/src/llm/providers/gemini_provider.py",
+    "/home/sean/app/bin2nlp/src/llm/providers/anthropic_provider.py",
+    "/home/sean/app/bin2nlp/src/llm/providers/openai_provider.py",
+    "/home/sean/app/bin2nlp/src/llm/providers/factory.py",
+    "/home/sean/app/bin2nlp/src/llm/prompts/overall_summary.py",
+    "/home/sean/app/bin2nlp/src/llm/prompts/__init__.py",
+    "/home/sean/app/bin2nlp/src/llm/prompts/function_translation.py",
+    "/home/sean/app/bin2nlp/src/llm/prompts/import_explanation.py",
+    "/home/sean/app/bin2nlp/src/llm/prompts/base.py",
+    "/home/sean/app/bin2nlp/src/llm/prompts/manager.py",
+    "/home/sean/app/bin2nlp/src/llm/prompts/string_interpretation.py",
+    "/home/sean/app/bin2nlp/src/models/analysis/serialization.py",
+    "/home/sean/app/bin2nlp/src/models/analysis/__init__.py",
+    "/home/sean/app/bin2nlp/src/models/analysis/basic_results.py",
+    "/home/sean/app/bin2nlp/src/models/analysis/config.py",
+    "/home/sean/app/bin2nlp/src/models/analysis/files.py",
+    "/home/sean/app/bin2nlp/src/models/analysis/results.py",
+    "/home/sean/app/bin2nlp/src/models/decompilation/__init__.py",
+    "/home/sean/app/bin2nlp/src/models/decompilation/results.py",
+    "/home/sean/app/bin2nlp/src/models/shared/__init__.py",
+    "/home/sean/app/bin2nlp/src/models/shared/base.py",
+    "/home/sean/app/bin2nlp/src/models/shared/enums.py",
+    "/home/sean/app/bin2nlp/src/models/api/__init__.py",
+    "/home/sean/app/bin2nlp/src/models/api/jobs.py",
+    "/home/sean/app/bin2nlp/src/models/api/decompilation.py",
+    "/home/sean/app/bin2nlp/src/models/api/auth.py",
+    "/home/sean/app/bin2nlp/src/api/routes/health.py",
+    "/home/sean/app/bin2nlp/src/api/routes/__init__.py",
+    "/home/sean/app/bin2nlp/src/api/routes/decompilation.py",
+    "/home/sean/app/bin2nlp/src/api/routes/llm_providers.py",
+    "/home/sean/app/bin2nlp/src/api/routes/admin.py",
+    "/home/sean/app/bin2nlp/src/api/middleware/error_handling.py",
+    "/home/sean/app/bin2nlp/src/api/middleware/__init__.py",
+    "/home/sean/app/bin2nlp/src/api/middleware/request_logging.py",
+    "/home/sean/app/bin2nlp/src/api/middleware/rate_limiting.py",
+    "/home/sean/app/bin2nlp/src/api/middleware/auth.py"
+  ],
+  "last_commit_hash": "d625663fa5276263ed6019b43a84f1d986362314",
+  "working_directory": "/home/sean/app/bin2nlp",
+  "git_status": {
+    "status_output": " M .housekeeping/QUICK_RESUME.md\n M CLAUDE.md\n D CONSOLIDATION_TEST_PLAN.md\n D CONTEXT_RESET_PROTOCOL.md\n D PROJECT_STATUS.md\n M RESUME_COMMANDS.txt\n D adrs/000_PADR|bin2nlp.md\n D instruct/000_README.md\n D instruct/001_create-project-prd.md\n D instruct/002_create-adr.md\n D instruct/003_create-feature-prd.md\n D instruct/004_create-tdd.md\n D instruct/005_create-tid.md\n D instruct/006_generate-tasks.md\n D instruct/007_process-task-list.md\n D instruct/999_Scratch.md\n D openapi_current.json\n D prds/000_PPRD|bin2nlp.md\n D prds/001_FPRD|Binary_Decompilation_Engine.md\n D prds/002_FPRD|RESTful_API_Interface.md\n M requirements.txt\n M src/analysis/error_recovery.py\n M src/api/main.py\n M src/api/middleware/__init__.py\n M src/api/middleware/request_logging.py\n M src/api/routes/decompilation.py\n M src/core/config.py\n M src/core/exceptions.py\n M src/decompilation/engine.py\n M src/llm/base.py\n M src/llm/prompts/manager.py\n M src/llm/providers/factory.py\n M src/llm/providers/openai_provider.py\n M src/models/shared/enums.py\n D tasks/000_MASTER_TASKS|Decompilation_Service.md\n D tasks/001_FTASKS|Phase1_Integrated_System.md\n D tasks/990_CTASKS|Purge_Focused_Analysis.md\n D tdds/001_FTDD|Phase1_Integrated_System.md\n D test_section_9_comprehensive.py\n D tests/unit/analysis/__init__.py\n D tests/unit/analysis/test_error_recovery.py\n D tests/unit/analysis/test_r2_integration.py\n M tests/unit/decompilation/test_engine.py\n M tests/unit/models/analysis/test_config.py\n D tids/001_FTID|Phase1_Integrated_System.md\n?? !xcc/\n?? .env.development\n?? .env.template\n?? .housekeeping/dev-protocols/\n?? .housekeeping/resume_session_20250818_222005.md\n?? .housekeeping/resume_session_20250818_235754.md\n?? .housekeeping/snapshots/session_20250818_222005.json\n?? .housekeeping/snapshots/session_20250818_235754.json\n?? .housekeeping/transcripts/session_20250818_222005/\n?? .housekeeping/transcripts/session_20250818_235754/\n?? DEPLOYMENT.md\n?? Dockerfile\n?? config/\n?? docker-compose.override.yml\n?? docker-compose.prod.yml\n?? docker-compose.yml\n?? docs/openapi_current.json\n?? scripts/deploy.sh\n?? scripts/docker-utils.sh\n?? scripts/test-deployment.sh\n?? src/api/middleware/auth.py\n?? src/api/middleware/rate_limiting.py\n?? src/api/routes/admin.py\n?? src/cli.py\n?? src/core/circuit_breaker.py\n?? src/core/dashboards.py\n?? src/core/metrics.py\n?? tests/integration/test_api_integration.py\n?? tests/integration/test_end_to_end_production.py\n?? tests/integration/test_llm_provider_integration.py\n?? tests/integration/test_redis_integration.py\n?? tests/unit/decompilation/test_r2_session.py\n",
+    "last_commit": "d625663fa5276263ed6019b43a84f1d986362314",
+    "current_branch": "main",
+    "has_uncommitted_changes": true,
+    "status_files": [
+      "M .housekeeping/QUICK_RESUME.md",
+      "M CLAUDE.md",
+      "D CONSOLIDATION_TEST_PLAN.md",
+      "D CONTEXT_RESET_PROTOCOL.md",
+      "D PROJECT_STATUS.md",
+      "M RESUME_COMMANDS.txt",
+      "D adrs/000_PADR|bin2nlp.md",
+      "D instruct/000_README.md",
+      "D instruct/001_create-project-prd.md",
+      "D instruct/002_create-adr.md",
+      "D instruct/003_create-feature-prd.md",
+      "D instruct/004_create-tdd.md",
+      "D instruct/005_create-tid.md",
+      "D instruct/006_generate-tasks.md",
+      "D instruct/007_process-task-list.md",
+      "D instruct/999_Scratch.md",
+      "D openapi_current.json",
+      "D prds/000_PPRD|bin2nlp.md",
+      "D prds/001_FPRD|Binary_Decompilation_Engine.md",
+      "D prds/002_FPRD|RESTful_API_Interface.md",
+      "M requirements.txt",
+      "M src/analysis/error_recovery.py",
+      "M src/api/main.py",
+      "M src/api/middleware/__init__.py",
+      "M src/api/middleware/request_logging.py",
+      "M src/api/routes/decompilation.py",
+      "M src/core/config.py",
+      "M src/core/exceptions.py",
+      "M src/decompilation/engine.py",
+      "M src/llm/base.py",
+      "M src/llm/prompts/manager.py",
+      "M src/llm/providers/factory.py",
+      "M src/llm/providers/openai_provider.py",
+      "M src/models/shared/enums.py",
+      "D tasks/000_MASTER_TASKS|Decompilation_Service.md",
+      "D tasks/001_FTASKS|Phase1_Integrated_System.md",
+      "D tasks/990_CTASKS|Purge_Focused_Analysis.md",
+      "D tdds/001_FTDD|Phase1_Integrated_System.md",
+      "D test_section_9_comprehensive.py",
+      "D tests/unit/analysis/__init__.py",
+      "D tests/unit/analysis/test_error_recovery.py",
+      "D tests/unit/analysis/test_r2_integration.py",
+      "M tests/unit/decompilation/test_engine.py",
+      "M tests/unit/models/analysis/test_config.py",
+      "D tids/001_FTID|Phase1_Integrated_System.md",
+      "?? !xcc/",
+      "?? .env.development",
+      "?? .env.template",
+      "?? .housekeeping/dev-protocols/",
+      "?? .housekeeping/resume_session_20250818_222005.md",
+      "?? .housekeeping/resume_session_20250818_235754.md",
+      "?? .housekeeping/snapshots/session_20250818_222005.json",
+      "?? .housekeeping/snapshots/session_20250818_235754.json",
+      "?? .housekeeping/transcripts/session_20250818_222005/",
+      "?? .housekeeping/transcripts/session_20250818_235754/",
+      "?? DEPLOYMENT.md",
+      "?? Dockerfile",
+      "?? config/",
+      "?? docker-compose.override.yml",
+      "?? docker-compose.prod.yml",
+      "?? docker-compose.yml",
+      "?? docs/openapi_current.json",
+      "?? scripts/deploy.sh",
+      "?? scripts/docker-utils.sh",
+      "?? scripts/test-deployment.sh",
+      "?? src/api/middleware/auth.py",
+      "?? src/api/middleware/rate_limiting.py",
+      "?? src/api/routes/admin.py",
+      "?? src/cli.py",
+      "?? src/core/circuit_breaker.py",
+      "?? src/core/dashboards.py",
+      "?? src/core/metrics.py",
+      "?? tests/integration/test_api_integration.py",
+      "?? tests/integration/test_end_to_end_production.py",
+      "?? tests/integration/test_llm_provider_integration.py",
+      "?? tests/integration/test_redis_integration.py",
+      "?? tests/unit/decompilation/test_r2_session.py"
+    ]
+  },
+  "context_summary": "Working on ** 🚀 **PRODUCTION READINESS PHASE 5.0** - Docker deployment ready, monitoring setup next. Next: ** Monitoring & observability setup, final operational documentation. Recently modified: housekeeping/QUICK_RESUME.md, LAUDE.md, ONSOLIDATION_TEST_PLAN.md",
+  "next_steps": [
+    "** Monitoring & observability setup",
+    "final operational documentation"
+  ],
+  "blockers": [],
+  "notes": "Auto-context clear at 21:44. Progress: 0 tasks done, 0 pending.",
+  "modified_files": [
+    {
+      "filename": "housekeeping/QUICK_RESUME.md",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "LAUDE.md",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "ONSOLIDATION_TEST_PLAN.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "ONTEXT_RESET_PROTOCOL.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "ROJECT_STATUS.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "ESUME_COMMANDS.txt",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "drs/000_PADR|bin2nlp.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "nstruct/000_README.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "nstruct/001_create-project-prd.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "nstruct/002_create-adr.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "nstruct/003_create-feature-prd.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "nstruct/004_create-tdd.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "nstruct/005_create-tid.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "nstruct/006_generate-tasks.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "nstruct/007_process-task-list.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "nstruct/999_Scratch.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "penapi_current.json",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "rds/000_PPRD|bin2nlp.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "rds/001_FPRD|Binary_Decompilation_Engine.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "rds/002_FPRD|RESTful_API_Interface.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "equirements.txt",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "rc/analysis/error_recovery.py",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "rc/api/main.py",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "rc/api/middleware/__init__.py",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "rc/api/middleware/request_logging.py",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "rc/api/routes/decompilation.py",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "rc/core/config.py",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "rc/core/exceptions.py",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "rc/decompilation/engine.py",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "rc/llm/base.py",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "rc/llm/prompts/manager.py",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "rc/llm/providers/factory.py",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "rc/llm/providers/openai_provider.py",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "rc/models/shared/enums.py",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "asks/000_MASTER_TASKS|Decompilation_Service.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "asks/001_FTASKS|Phase1_Integrated_System.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "asks/990_CTASKS|Purge_Focused_Analysis.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "dds/001_FTDD|Phase1_Integrated_System.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "est_section_9_comprehensive.py",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "ests/unit/analysis/__init__.py",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "ests/unit/analysis/test_error_recovery.py",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "ests/unit/analysis/test_r2_integration.py",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "ests/unit/decompilation/test_engine.py",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "ests/unit/models/analysis/test_config.py",
+      "status": "M ",
+      "is_new": false,
+      "is_modified": true,
+      "is_staged": true
+    },
+    {
+      "filename": "ids/001_FTID|Phase1_Integrated_System.md",
+      "status": "D ",
+      "is_new": false,
+      "is_modified": false,
+      "is_staged": true
+    },
+    {
+      "filename": "!xcc/",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": ".env.development",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": ".env.template",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": ".housekeeping/dev-protocols/",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": ".housekeeping/resume_session_20250818_222005.md",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": ".housekeeping/resume_session_20250818_235754.md",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": ".housekeeping/snapshots/session_20250818_222005.json",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": ".housekeeping/snapshots/session_20250818_235754.json",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": ".housekeeping/transcripts/session_20250818_222005/",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": ".housekeeping/transcripts/session_20250818_235754/",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "DEPLOYMENT.md",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "Dockerfile",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "config/",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "docker-compose.override.yml",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "docker-compose.prod.yml",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "docker-compose.yml",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "docs/openapi_current.json",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "scripts/deploy.sh",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "scripts/docker-utils.sh",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "scripts/test-deployment.sh",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "src/api/middleware/auth.py",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "src/api/middleware/rate_limiting.py",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "src/api/routes/admin.py",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "src/cli.py",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "src/core/circuit_breaker.py",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "src/core/dashboards.py",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "src/core/metrics.py",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "tests/integration/test_api_integration.py",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "tests/integration/test_end_to_end_production.py",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "tests/integration/test_llm_provider_integration.py",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "tests/integration/test_redis_integration.py",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    },
+    {
+      "filename": "tests/unit/decompilation/test_r2_session.py",
+      "status": "??",
+      "is_new": true,
+      "is_modified": false,
+      "is_staged": false
+    }
+  ],
+  "created_files": [
+    "!xcc/",
+    ".env.development",
+    ".env.template",
+    ".housekeeping/dev-protocols/",
+    ".housekeeping/resume_session_20250818_222005.md",
+    ".housekeeping/resume_session_20250818_235754.md",
+    ".housekeeping/snapshots/session_20250818_222005.json",
+    ".housekeeping/snapshots/session_20250818_235754.json",
+    ".housekeeping/transcripts/session_20250818_222005/",
+    ".housekeeping/transcripts/session_20250818_235754/",
+    "DEPLOYMENT.md",
+    "Dockerfile",
+    "config/",
+    "docker-compose.override.yml",
+    "docker-compose.prod.yml",
+    "docker-compose.yml",
+    "docs/openapi_current.json",
+    "scripts/deploy.sh",
+    "scripts/docker-utils.sh",
+    "scripts/test-deployment.sh",
+    "src/api/middleware/auth.py",
+    "src/api/middleware/rate_limiting.py",
+    "src/api/routes/admin.py",
+    "src/cli.py",
+    "src/core/circuit_breaker.py",
+    "src/core/dashboards.py",
+    "src/core/metrics.py",
+    "tests/integration/test_api_integration.py",
+    "tests/integration/test_end_to_end_production.py",
+    "tests/integration/test_llm_provider_integration.py",
+    "tests/integration/test_redis_integration.py",
+    "tests/unit/decompilation/test_r2_session.py"
+  ]
+}

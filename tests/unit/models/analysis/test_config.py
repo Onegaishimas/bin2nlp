@@ -10,8 +10,9 @@ from datetime import datetime, timezone
 from typing import List
 from uuid import UUID
 
-from src.models.shared.enums import AnalysisDepth, FileFormat
-from src.models.analysis.config import AnalysisConfig, AnalysisRequest, AnalysisJobMetadata
+from src.models.shared.enums import FileFormat, Platform
+from src.models.decompilation.results import DecompilationDepth, TranslationDetail
+from src.models.analysis.config import DecompilationConfig, DecompilationRequest
 
 
 class TestAnalysisConfig:
