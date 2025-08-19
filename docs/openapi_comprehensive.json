@@ -1,0 +1,1763 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "bin2nlp API",
+    "description": "\n        ## Binary Decompilation & Multi-LLM Translation Service\n\n        Transform binary executables into human-readable analysis through advanced decompilation \n        and multi-provider LLM translation.\n\n        ### Key Features\n        - **Multi-format support**: PE, ELF, Mach-O binary analysis\n        - **Multi-LLM providers**: OpenAI, Anthropic, Google Gemini integration\n        - **Scalable architecture**: Redis caching, async processing\n        - **Production ready**: Authentication, rate limiting, monitoring\n\n        ### Authentication\n        Most endpoints require API key authentication. Provide your API key in the \n        `Authorization` header as `Bearer <your_api_key>`.\n\n        ### Rate Limits\n        Rate limits vary by access tier:\n        - **Basic**: 10 requests/minute, 600/hour\n        - **Standard**: 60 requests/minute, 3600/hour  \n        - **Premium**: 300 requests/minute, 18000/hour\n        - **Enterprise**: 1000 requests/minute, 60000/hour\n\n        ### Support\n        - Documentation: [GitHub Repository](https://github.com/example/bin2nlp)\n        - Issues: [Issue Tracker](https://github.com/example/bin2nlp/issues)\n        ",
+    "termsOfService": "https://example.com/terms",
+    "contact": {
+      "name": "bin2nlp Support",
+      "url": "https://example.com/support",
+      "email": "support@example.com"
+    },
+    "license": {
+      "name": "MIT License",
+      "url": "https://opensource.org/licenses/MIT"
+    },
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://0.0.0.0:8000",
+      "description": "Development server"
+    },
+    {
+      "url": "https://api.bin2nlp.com",
+      "description": "Production server"
+    }
+  ],
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health Check",
+        "description": "Basic health check endpoint.\n\nReturns system status and component health information.\nUsed by load balancers and monitoring systems.",
+        "operationId": "health_check_api_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health/ready": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Readiness Check",
+        "description": "Kubernetes-style readiness check.\n\nReturns 200 if service is ready to accept requests,\n503 if not ready.",
+        "operationId": "readiness_check_api_v1_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health/live": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Liveness Check",
+        "description": "Kubernetes-style liveness check.\n\nSimple check that the service is running.\nAlways returns 200 unless the application is completely broken.",
+        "operationId": "liveness_check_api_v1_health_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/system/info": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "System Info",
+        "description": "Get system information and capabilities.\n\nReturns information about supported formats, LLM providers,\nsystem limits, and configuration.",
+        "operationId": "system_info_api_v1_system_info_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemInfoResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/decompile": {
+      "post": {
+        "tags": [
+          "decompilation"
+        ],
+        "summary": "Submit Decompilation Job",
+        "description": "Submit a binary file for decompilation and LLM translation.\n\nUploads a binary file and starts async decompilation with optional\nLLM translation. Returns a job ID for tracking progress.\n\nArgs:\n    file: Binary file to decompile (PE, ELF, Mach-O, etc.)\n    analysis_depth: Decompilation depth (basic, standard, comprehensive)\n    llm_provider: LLM provider for translation (openai, anthropic, gemini)\n    translation_detail: Translation detail level (basic, standard, detailed)\n\nReturns:\n    Job information with tracking ID",
+        "operationId": "submit_decompilation_job_api_v1_decompile_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_submit_decompilation_job_api_v1_decompile_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/decompile/test": {
+      "get": {
+        "tags": [
+          "decompilation"
+        ],
+        "summary": "Test Decompilation",
+        "description": "Test endpoint for decompilation API.",
+        "operationId": "test_decompilation_api_v1_decompile_test_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/decompile/{job_id}": {
+      "get": {
+        "tags": [
+          "decompilation"
+        ],
+        "summary": "Get Decompilation Result",
+        "description": "Get decompilation job status and results.\n\nReturns job status, progress information, and complete results\nwhen processing is finished.",
+        "operationId": "get_decompilation_result_api_v1_decompile__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "include_raw_data",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Raw Data"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "decompilation"
+        ],
+        "summary": "Cancel Decompilation Job",
+        "description": "Cancel a pending or in-progress decompilation job.\n\nOnly jobs that are pending or in early processing stages can be cancelled.",
+        "operationId": "cancel_decompilation_job_api_v1_decompile__job_id__delete",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/llm-providers": {
+      "get": {
+        "tags": [
+          "llm-providers"
+        ],
+        "summary": "List Llm Providers",
+        "description": "List available LLM providers and their capabilities.\n\nReturns information about all configured LLM providers including\nhealth status, available models, and cost information.",
+        "operationId": "list_llm_providers_api_v1_llm_providers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMProvidersResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/llm-providers/{provider_id}": {
+      "get": {
+        "tags": [
+          "llm-providers"
+        ],
+        "summary": "Get Llm Provider Details",
+        "description": "Get detailed information about a specific LLM provider.\n\nReturns comprehensive information including health status,\nrecent performance metrics, and configuration details.",
+        "operationId": "get_llm_provider_details_api_v1_llm_providers__provider_id__get",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Provider Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/llm-providers/{provider_id}/health-check": {
+      "post": {
+        "tags": [
+          "llm-providers"
+        ],
+        "summary": "Check Provider Health",
+        "description": "Force a health check for a specific LLM provider.\n\nTriggers an immediate health check and returns the current status.\nUseful for testing provider connectivity and API key validity.",
+        "operationId": "check_provider_health_api_v1_llm_providers__provider_id__health_check_post",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Provider Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/api-keys": {
+      "post": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Create Api Key",
+        "description": "Create a new API key.\n\nRequires admin permission. Creates API keys with specified\ntier and permissions for the target user.",
+        "operationId": "create_api_key_api_v1_admin_api_keys_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAPIKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIKeyCreateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/api-keys/{user_id}": {
+      "get": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "List User Api Keys",
+        "description": "List all API keys for a user.\n\nRequires admin permission.",
+        "operationId": "list_user_api_keys_api_v1_admin_api_keys__user_id__get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/APIKeyInfo"
+                  },
+                  "title": "Response List User Api Keys Api V1 Admin Api Keys  User Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/api-keys/{user_id}/{key_id}": {
+      "delete": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Revoke Api Key",
+        "description": "Revoke an API key.\n\nRequires admin permission.",
+        "operationId": "revoke_api_key_api_v1_admin_api_keys__user_id___key_id__delete",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "key_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Revoke Api Key Api V1 Admin Api Keys  User Id   Key Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/stats": {
+      "get": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Get System Stats",
+        "description": "Get comprehensive system statistics.\n\nRequires admin permission.",
+        "operationId": "get_system_stats_api_v1_admin_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemStatsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/rate-limits/{user_id}": {
+      "get": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Get User Rate Limits",
+        "description": "Get current rate limit status for a user.\n\nRequires admin permission.",
+        "operationId": "get_user_rate_limits_api_v1_admin_rate_limits__user_id__get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get User Rate Limits Api V1 Admin Rate Limits  User Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/config": {
+      "get": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Get System Config",
+        "description": "Get current system configuration (non-sensitive).\n\nRequires admin permission.",
+        "operationId": "get_system_config_api_v1_admin_config_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get System Config Api V1 Admin Config Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/dev/create-api-key": {
+      "post": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Create Dev Api Key",
+        "description": "Create a development API key.\n\nOnly available in development/debug mode.",
+        "operationId": "create_dev_api_key_api_v1_admin_dev_create_api_key_post",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "dev_user",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Create Dev Api Key Api V1 Admin Dev Create Api Key Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/metrics/current": {
+      "get": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Get Current Metrics",
+        "description": "Get current snapshot of all metrics.\n\nReturns counters, gauges, histograms, and performance data.",
+        "operationId": "get_current_metrics_api_v1_admin_metrics_current_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/metrics/performance": {
+      "get": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Get Performance Metrics",
+        "description": "Get performance summary for operations.\n\nParameters:\n- operation_type: Filter by operation type (decompilation, llm_request, etc.)\n- time_window_minutes: Time window for analysis (default: 60 minutes)",
+        "operationId": "get_performance_metrics_api_v1_admin_metrics_performance_get",
+        "parameters": [
+          {
+            "name": "operation_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Operation Type"
+            }
+          },
+          {
+            "name": "time_window_minutes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 60,
+              "title": "Time Window Minutes"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/metrics/decompilation": {
+      "get": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Get Decompilation Metrics",
+        "description": "Get detailed decompilation performance metrics.",
+        "operationId": "get_decompilation_metrics_api_v1_admin_metrics_decompilation_get",
+        "parameters": [
+          {
+            "name": "time_window_minutes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 60,
+              "title": "Time Window Minutes"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/metrics/llm": {
+      "get": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Get Llm Metrics",
+        "description": "Get detailed LLM provider performance metrics.",
+        "operationId": "get_llm_metrics_api_v1_admin_metrics_llm_get",
+        "parameters": [
+          {
+            "name": "time_window_minutes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 60,
+              "title": "Time Window Minutes"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/circuit-breakers": {
+      "get": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Get All Circuit Breakers",
+        "description": "Get status of all circuit breakers.",
+        "operationId": "get_all_circuit_breakers_api_v1_admin_circuit_breakers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/circuit-breakers/{circuit_name}": {
+      "get": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Get Circuit Breaker Status",
+        "description": "Get detailed status of a specific circuit breaker.",
+        "operationId": "get_circuit_breaker_status_api_v1_admin_circuit_breakers__circuit_name__get",
+        "parameters": [
+          {
+            "name": "circuit_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Circuit Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/circuit-breakers/{circuit_name}/reset": {
+      "post": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Reset Circuit Breaker",
+        "description": "Reset a specific circuit breaker to closed state.",
+        "operationId": "reset_circuit_breaker_api_v1_admin_circuit_breakers__circuit_name__reset_post",
+        "parameters": [
+          {
+            "name": "circuit_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Circuit Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/circuit-breakers/{circuit_name}/force-open": {
+      "post": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Force Open Circuit Breaker",
+        "description": "Force a circuit breaker to open state.",
+        "operationId": "force_open_circuit_breaker_api_v1_admin_circuit_breakers__circuit_name__force_open_post",
+        "parameters": [
+          {
+            "name": "circuit_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Circuit Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/circuit-breakers/health-check/all": {
+      "get": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Health Check All Circuits",
+        "description": "Perform health checks on all circuit breakers.",
+        "operationId": "health_check_all_circuits_api_v1_admin_circuit_breakers_health_check_all_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/dashboards/overview": {
+      "get": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Get Overview Dashboard",
+        "description": "Get the main system overview dashboard.",
+        "operationId": "get_overview_dashboard_api_v1_admin_dashboards_overview_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/dashboards/performance": {
+      "get": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Get Performance Dashboard",
+        "description": "Get detailed performance dashboard.",
+        "operationId": "get_performance_dashboard_api_v1_admin_dashboards_performance_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/alerts": {
+      "get": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Get All Alerts",
+        "description": "Get all alerts with optional history.",
+        "operationId": "get_all_alerts_api_v1_admin_alerts_get",
+        "parameters": [
+          {
+            "name": "include_history",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include History"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/alerts/check": {
+      "post": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Run Alert Checks Endpoint",
+        "description": "Manually trigger alert checks.",
+        "operationId": "run_alert_checks_endpoint_api_v1_admin_alerts_check_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/alerts/{alert_id}/acknowledge": {
+      "post": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Acknowledge Alert",
+        "description": "Acknowledge an active alert.",
+        "operationId": "acknowledge_alert_api_v1_admin_alerts__alert_id__acknowledge_post",
+        "parameters": [
+          {
+            "name": "alert_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Alert Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/alerts/{alert_id}/resolve": {
+      "post": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Resolve Alert",
+        "description": "Manually resolve an active alert.",
+        "operationId": "resolve_alert_api_v1_admin_alerts__alert_id__resolve_post",
+        "parameters": [
+          {
+            "name": "alert_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Alert Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/monitoring/prometheus": {
+      "get": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Get Prometheus Metrics",
+        "description": "Get Prometheus-format metrics for external monitoring integration.",
+        "operationId": "get_prometheus_metrics_api_v1_admin_monitoring_prometheus_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/monitoring/health-summary": {
+      "get": {
+        "tags": [
+          "admin",
+          "admin"
+        ],
+        "summary": "Get Health Summary",
+        "description": "Get comprehensive system health summary.",
+        "operationId": "get_health_summary_api_v1_admin_monitoring_health_summary_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/": {
+      "get": {
+        "tags": [
+          "dashboard",
+          "dashboard"
+        ],
+        "summary": "Dashboard Home",
+        "description": "Main dashboard web interface.\n\nProvides a human-readable HTML dashboard showing system status,\nperformance metrics, circuit breaker status, and active alerts.",
+        "operationId": "dashboard_home_dashboard__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/api": {
+      "get": {
+        "tags": [
+          "dashboard",
+          "dashboard"
+        ],
+        "summary": "Api Explorer",
+        "description": "Simple API explorer page.\n\nProvides links to key API endpoints for manual testing and exploration.",
+        "operationId": "api_explorer_dashboard_api_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "APIKeyCreateResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "Operation success"
+          },
+          "api_key": {
+            "type": "string",
+            "title": "Api Key",
+            "description": "Generated API key"
+          },
+          "key_info": {
+            "$ref": "#/components/schemas/APIKeyInfo",
+            "description": "Key information"
+          },
+          "warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warning",
+            "description": "Security warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "api_key",
+          "key_info"
+        ],
+        "title": "APIKeyCreateResponse",
+        "description": "Response for API key creation."
+      },
+      "APIKeyInfo": {
+        "properties": {
+          "key_id": {
+            "type": "string",
+            "title": "Key Id",
+            "description": "Key identifier"
+          },
+          "user_id": {
+            "type": "string",
+            "title": "User Id",
+            "description": "User identifier"
+          },
+          "tier": {
+            "type": "string",
+            "title": "Tier",
+            "description": "Access tier"
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Permissions",
+            "description": "Permissions list"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Key status"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At",
+            "description": "Creation timestamp"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At",
+            "description": "Last usage timestamp"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At",
+            "description": "Expiry timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key_id",
+          "user_id",
+          "tier",
+          "permissions",
+          "status",
+          "created_at"
+        ],
+        "title": "APIKeyInfo",
+        "description": "API key information response."
+      },
+      "Body_submit_decompilation_job_api_v1_decompile_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "title": "File"
+          },
+          "analysis_depth": {
+            "type": "string",
+            "title": "Analysis Depth",
+            "default": "standard"
+          },
+          "llm_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Provider"
+          },
+          "translation_detail": {
+            "type": "string",
+            "title": "Translation Detail",
+            "default": "standard"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_submit_decompilation_job_api_v1_decompile_post"
+      },
+      "CreateAPIKeyRequest": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "User Id",
+            "description": "User identifier"
+          },
+          "tier": {
+            "type": "string",
+            "pattern": "^(basic|standard|premium|enterprise)$",
+            "title": "Tier",
+            "description": "Access tier",
+            "default": "basic"
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Permissions",
+            "description": "List of permissions",
+            "default": [
+              "read"
+            ]
+          },
+          "expires_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 3650.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires Days",
+            "description": "Key expiry in days"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Key description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id"
+        ],
+        "title": "CreateAPIKeyRequest",
+        "description": "Request model for creating new API keys."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Overall system status"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "description": "API version"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment",
+            "description": "Environment name"
+          },
+          "services": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Services"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "version",
+          "environment"
+        ],
+        "title": "HealthResponse",
+        "description": "Health check response model."
+      },
+      "LLMProviderInfo": {
+        "properties": {
+          "provider_id": {
+            "type": "string",
+            "title": "Provider Id",
+            "description": "Provider identifier"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Human-readable provider name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Provider availability status"
+          },
+          "available_models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Available Models",
+            "description": "Available models"
+          },
+          "cost_per_1k_tokens": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Per 1K Tokens",
+            "description": "Approximate cost per 1K tokens"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Capabilities",
+            "description": "Supported translation operations"
+          },
+          "health_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health Score",
+            "description": "Provider health score (0-1)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider_id",
+          "name",
+          "status",
+          "available_models",
+          "capabilities"
+        ],
+        "title": "LLMProviderInfo",
+        "description": "Information about available LLM providers."
+      },
+      "LLMProvidersResponse": {
+        "properties": {
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/LLMProviderInfo"
+            },
+            "type": "array",
+            "title": "Providers",
+            "description": "Available LLM providers"
+          },
+          "recommended_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Provider",
+            "description": "Recommended provider ID"
+          },
+          "total_healthy": {
+            "type": "integer",
+            "title": "Total Healthy",
+            "description": "Number of healthy providers"
+          },
+          "last_updated": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Updated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "providers",
+          "total_healthy"
+        ],
+        "title": "LLMProvidersResponse",
+        "description": "Response listing available LLM providers."
+      },
+      "SystemInfoResponse": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "description": "API version"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment",
+            "description": "Environment name"
+          },
+          "debug_mode": {
+            "type": "boolean",
+            "title": "Debug Mode",
+            "description": "Debug mode status"
+          },
+          "supported_formats": {
+            "items": {},
+            "type": "array",
+            "title": "Supported Formats",
+            "description": "Supported binary formats"
+          },
+          "llm_providers": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Llm Providers",
+            "description": "Available LLM providers"
+          },
+          "limits": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Limits",
+            "description": "System limits and quotas"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "environment",
+          "debug_mode",
+          "supported_formats",
+          "llm_providers",
+          "limits"
+        ],
+        "title": "SystemInfoResponse",
+        "description": "System information response model."
+      },
+      "SystemStatsResponse": {
+        "properties": {
+          "redis_stats": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Redis Stats",
+            "description": "Redis statistics"
+          },
+          "rate_limit_stats": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Rate Limit Stats",
+            "description": "Rate limiting statistics"
+          },
+          "api_key_stats": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Api Key Stats",
+            "description": "API key statistics"
+          },
+          "system_health": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "System Health",
+            "description": "System health metrics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "redis_stats",
+          "rate_limit_stats",
+          "api_key_stats",
+          "system_health"
+        ],
+        "title": "SystemStatsResponse",
+        "description": "System statistics response."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
