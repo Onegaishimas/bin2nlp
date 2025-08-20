@@ -1,0 +1,89 @@
+# bin2nlp Environment Configuration Template
+# Copy this file to .env and customize for your deployment
+
+# =============================================================================
+# APPLICATION SETTINGS
+# =============================================================================
+APP_ENV=production
+DEBUG=false
+WORKERS=4
+
+# =============================================================================
+# API CONFIGURATION  
+# =============================================================================
+API_HOST=0.0.0.0
+API_PORT=8000
+API_CORS_ORIGINS=["https://yourdomain.com"]
+
+# =============================================================================
+# DATABASE/CACHE
+# =============================================================================
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_DB=0
+REDIS_PASSWORD=""
+
+# =============================================================================
+# SECURITY SETTINGS
+# =============================================================================
+API_KEY_PREFIX=ak_
+API_KEY_EXPIRY_DAYS=365
+REQUIRE_API_KEYS=true
+ENFORCE_HTTPS=true
+
+# =============================================================================
+# FILE PROCESSING
+# =============================================================================
+MAX_FILE_SIZE_MB=100
+UPLOAD_TIMEOUT_SECONDS=300
+MAX_TIMEOUT_SECONDS=1800
+SUPPORTED_FORMATS=["pe", "elf", "macho"]
+
+# =============================================================================
+# LLM PROVIDER API KEYS (REQUIRED FOR LLM FUNCTIONALITY)
+# =============================================================================
+# OpenAI Configuration
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-4
+OPENAI_MAX_TOKENS=4000
+
+# Anthropic Configuration  
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+ANTHROPIC_MODEL=claude-3-sonnet-20240229
+ANTHROPIC_MAX_TOKENS=4000
+
+# Google Gemini Configuration
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-pro
+GEMINI_MAX_TOKENS=4000
+
+# LLM Service Settings
+LLM_ENABLED_PROVIDERS=["openai", "anthropic", "gemini"]
+LLM_DEFAULT_PROVIDER=openai
+LLM_REQUESTS_PER_MINUTE=60
+LLM_TOKENS_PER_MINUTE=90000
+LLM_FALLBACK_ENABLED=true
+
+# =============================================================================
+# RATE LIMITING
+# =============================================================================
+DEFAULT_RATE_LIMIT_PER_MINUTE=100
+DEFAULT_RATE_LIMIT_PER_DAY=10000
+
+# Rate limits by user tier
+RATE_LIMIT_BASIC_PER_MINUTE=10
+RATE_LIMIT_BASIC_PER_DAY=600
+RATE_LIMIT_STANDARD_PER_MINUTE=60
+RATE_LIMIT_STANDARD_PER_DAY=3600
+RATE_LIMIT_PREMIUM_PER_MINUTE=300
+RATE_LIMIT_PREMIUM_PER_DAY=18000
+RATE_LIMIT_ENTERPRISE_PER_MINUTE=1000
+RATE_LIMIT_ENTERPRISE_PER_DAY=60000
+
+# =============================================================================
+# LOGGING & MONITORING
+# =============================================================================
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+ENABLE_METRICS=true
+METRICS_PORT=9090

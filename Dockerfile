@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN git clone https://github.com/radareorg/radare2.git /tmp/radare2 \
     && cd /tmp/radare2 \
     && ./sys/install.sh \
+    && echo "Radare2 installation complete. Checking files..." \
+    && find /usr/local -name "*r2*" -o -name "*radare*" -o -name "libr*" 2>/dev/null | head -20 \
     && rm -rf /tmp/radare2
 
 # Create virtual environment
@@ -56,11 +58,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy Python virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
 
-# Copy radare2 installation from builder
-COPY --from=builder /usr/local/bin/r* /usr/local/bin/
-COPY --from=builder /usr/local/lib/libr* /usr/local/lib/
-COPY --from=builder /usr/local/share/radare2 /usr/local/share/radare2
-COPY --from=builder /usr/local/include/libr /usr/local/include/libr
+# Copy radare2 installation from builder - handle missing files gracefully
+RUN mkdir -p /usr/local/bin /usr/local/lib /usr/local/share /usr/local/include
+COPY --from=builder /usr/local/bin/ /usr/local/bin/
+COPY --from=builder /usr/local/lib/ /usr/local/lib/
+COPY --from=builder /usr/local/share/ /usr/local/share/
+COPY --from=builder /usr/local/include/ /usr/local/include/
 
 # Update library cache
 RUN ldconfig
