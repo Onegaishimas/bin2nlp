@@ -1,0 +1,271 @@
+# Kubernetes Deployment for bin2nlp Binary Decompilation API
+# Production-ready configuration with comprehensive health checks and resource management
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bin2nlp-api
+  labels:
+    app: bin2nlp
+    component: api
+    version: v1.0.0
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: bin2nlp
+      component: api
+  template:
+    metadata:
+      labels:
+        app: bin2nlp
+        component: api
+        version: v1.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+      - name: bin2nlp-api
+        image: bin2nlp:1.0.0-k8s
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        env:
+        - name: APP_ENV
+          value: "production"
+        - name: WORKERS
+          value: "4"
+        - name: REDIS_HOST
+          value: "bin2nlp-redis"
+        - name: REDIS_PORT
+          value: "6379"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+            ephemeral-storage: "1Gi"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+            ephemeral-storage: "2Gi"
+        
+        # Startup probe: Allow more time for initial container startup
+        # This runs before readiness and liveness probes
+        startupProbe:
+          exec:
+            command: ["/usr/local/bin/health-check"]
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6  # 60 seconds total startup time
+          successThreshold: 1
+        
+        # Readiness probe: Determines when pod is ready to receive traffic
+        # More sensitive, can fail temporarily
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: http
+            httpHeaders:
+            - name: User-Agent
+              value: k8s-readiness-probe
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        
+        # Liveness probe: Determines when to restart the container
+        # Less sensitive, only fails on serious issues
+        livenessProbe:
+          exec:
+            command: ["/usr/local/bin/health-check"]
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+          successThreshold: 1
+        
+        volumeMounts:
+        - name: tmp-uploads
+          mountPath: /tmp/uploads
+        - name: app-logs
+          mountPath: /var/log/app
+        
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false  # radare2 needs some write access
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          runAsUser: 1001
+
+      volumes:
+      - name: tmp-uploads
+        emptyDir:
+          sizeLimit: 1Gi
+      - name: app-logs
+        emptyDir:
+          sizeLimit: 100Mi
+      
+      # Node selection and affinity rules
+      nodeSelector:
+        kubernetes.io/os: linux
+      
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - bin2nlp
+              topologyKey: kubernetes.io/hostname
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bin2nlp-api-service
+  labels:
+    app: bin2nlp
+    component: api
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8000
+    targetPort: http
+    protocol: TCP
+  selector:
+    app: bin2nlp
+    component: api
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bin2nlp-redis
+  labels:
+    app: bin2nlp
+    component: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bin2nlp
+      component: redis
+  template:
+    metadata:
+      labels:
+        app: bin2nlp
+        component: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7.2-alpine
+        ports:
+        - name: redis
+          containerPort: 6379
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          tcpSocket:
+            port: redis
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bin2nlp-redis
+  labels:
+    app: bin2nlp
+    component: redis
+spec:
+  type: ClusterIP
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: redis
+  selector:
+    app: bin2nlp
+    component: redis
+
+---
+# HorizontalPodAutoscaler for API pods based on CPU and memory
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: bin2nlp-api-hpa
+  labels:
+    app: bin2nlp
+    component: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: bin2nlp-api
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+      - type: Pods
+        value: 4
+        periodSeconds: 15
+      selectPolicy: Max

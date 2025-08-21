@@ -193,50 +193,30 @@ class JobQueue:
                 updated_at=current_time
             )
             
-            # Use pipeline for atomic operations
-            async with redis.pipeline() as pipe:
-                while True:
-                    try:
-                        # Watch for concurrent modifications
-                        await pipe.watch(
-                            self.JOB_QUEUE_KEY.format(priority=priority),
-                            self.QUEUE_STATS_KEY
-                        )
-                        
-                        # Start transaction
-                        pipe.multi()
-                        
-                        # Add to priority queue (use timestamp as score for FIFO within priority)
-                        await pipe.zadd(
-                            self.JOB_QUEUE_KEY.format(priority=priority),
-                            {job_id: current_time}
-                        )
-                        
-                        # Store job metadata
-                        await pipe.set(
-                            self.JOB_METADATA_KEY.format(job_id=job_id),
-                            json.dumps(job_metadata.to_dict()),
-                            ex=86400  # 24 hour TTL
-                        )
-                        
-                        # Store job progress
-                        await pipe.set(
-                            self.JOB_PROGRESS_KEY.format(job_id=job_id),
-                            json.dumps(job_progress.to_dict()),
-                            ex=86400  # 24 hour TTL
-                        )
-                        
-                        # Update queue statistics
-                        await pipe.hincrby(self.QUEUE_STATS_KEY, f"queued_{priority}", 1)
-                        await pipe.hincrby(self.QUEUE_STATS_KEY, "total_queued", 1)
-                        
-                        # Execute transaction
-                        await pipe.execute()
-                        break
-                        
-                    except redis.WatchError:
-                        # Retry on concurrent modification
-                        continue
+            # Store job data directly (simplified for now)
+            # Store job metadata
+            await redis.set(
+                self.JOB_METADATA_KEY.format(job_id=job_id),
+                json.dumps(job_metadata.to_dict()),
+                ttl=86400  # 24 hour TTL
+            )
+            
+            # Store job progress
+            await redis.set(
+                self.JOB_PROGRESS_KEY.format(job_id=job_id),
+                json.dumps(job_progress.to_dict()),
+                ttl=86400  # 24 hour TTL
+            )
+            
+            # Add to priority queue (use timestamp as score for FIFO within priority)
+            await redis._client.zadd(
+                self.JOB_QUEUE_KEY.format(priority=priority),
+                {job_id: current_time}
+            )
+            
+            # Update queue statistics
+            await redis._client.hincrby(self.QUEUE_STATS_KEY, f"queued_{priority}", 1)
+            await redis._client.hincrby(self.QUEUE_STATS_KEY, "total_queued", 1)
             
             self.logger.info(
                 "Job enqueued successfully",
@@ -398,14 +378,20 @@ class JobQueue:
             redis = await self._get_redis()
             current_time = time.time()
             
-            # Remove from processing set
+            # Remove from processing set (if it exists)
             processing_info = await redis._client.hget(self.JOB_PROCESSING_KEY, job_id)
-            if not processing_info or not processing_info.startswith(worker_id):
-                self.logger.warning(
-                    "Job not found in processing or wrong worker",
+            if not processing_info:
+                # Job not in processing hash - this is OK for FastAPI BackgroundTasks pattern
+                self.logger.info(
+                    "Job not in processing hash - likely using BackgroundTasks pattern",
                     extra={"job_id": job_id, "worker_id": worker_id}
                 )
-                return False
+            elif not processing_info.startswith(worker_id):
+                self.logger.warning(
+                    "Job being completed by different worker",
+                    extra={"job_id": job_id, "worker_id": worker_id, "processing_worker": processing_info}
+                )
+                # Still allow completion but log the mismatch
             
             # Update job progress
             await self.update_job_progress(
@@ -415,11 +401,12 @@ class JobQueue:
                 updated_at=current_time
             )
             
-            # Remove from processing
-            await redis._client.hdel(self.JOB_PROCESSING_KEY, job_id)
+            # Remove from processing (if it was there)
+            removed_count = await redis._client.hdel(self.JOB_PROCESSING_KEY, job_id)
             
-            # Update statistics
-            await redis._client.hincrby(self.QUEUE_STATS_KEY, "processing", -1)
+            # Update statistics - only decrement processing if job was actually there
+            if removed_count > 0:
+                await redis._client.hincrby(self.QUEUE_STATS_KEY, "processing", -1)
             await redis._client.hincrby(self.QUEUE_STATS_KEY, "completed", 1)
             
             self.logger.info(
@@ -595,7 +582,7 @@ class JobQueue:
             await redis.set(
                 progress_key,
                 json.dumps(job_progress.to_dict()),
-                ex=86400  # 24 hour TTL
+                ttl=86400  # 24 hour TTL
             )
             
             return True

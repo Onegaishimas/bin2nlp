@@ -102,7 +102,12 @@ class R2Session:
         self.file_content = file_content
         self.default_timeout = default_timeout
         self.max_retries = max_retries
-        self.r2_flags = r2_flags or ['-2', '-q']  # quiet mode, no colors
+        self.r2_flags = r2_flags or [
+            '-2',  # Disable colors
+            '-q',  # Quiet mode  
+            '-e', 'bin.relocs.apply=true',  # Apply relocations for better analysis
+            '-e', 'bin.cache=true'  # Enable binary cache for performance
+        ]
         
         self._r2_pipe: Optional[r2pipe.open_sync] = None
         self._temp_file_path: Optional[str] = None
@@ -166,10 +171,21 @@ class R2Session:
     
     def _init_r2pipe(self) -> r2pipe.open_sync:
         """Initialize r2pipe (runs in thread pool)."""
-        return r2pipe.open(
-            filename=self.file_path,
-            flags=self.r2_flags
-        )
+        # Try to open with configured flags first, fallback to no flags if needed
+        try:
+            return r2pipe.open(
+                filename=self.file_path,
+                flags=self.r2_flags
+            )
+        except Exception as e:
+            # Fallback: try without flags for uploaded files that may have compatibility issues
+            self.logger.warning(
+                f"r2pipe.open failed with flags {self.r2_flags}, trying without flags: {e}"
+            )
+            try:
+                return r2pipe.open(filename=self.file_path)
+            except Exception as e2:
+                raise R2SessionException(f"Failed to open file with radare2: {e2}")
     
     async def _create_temp_file(self) -> str:
         """Create temporary file from file content."""

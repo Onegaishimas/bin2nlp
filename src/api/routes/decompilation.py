@@ -5,9 +5,12 @@ Core API endpoints for binary decompilation and LLM translation.
 Simplified architecture focusing on decompilation + translation workflow.
 """
 
+import os
 import uuid
+import tempfile
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
+from pathlib import Path
 
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse
@@ -19,6 +22,8 @@ from ...core.exceptions import (
     ValidationException
 )
 from ...decompilation.engine import DecompilationEngine
+from ...cache.job_queue import JobQueue, JobMetadata
+from ...models.shared.enums import JobStatus
 from ...core.logging import get_logger
 
 
@@ -31,14 +36,105 @@ async def get_decompilation_engine() -> DecompilationEngine:
     return DecompilationEngine()
 
 
+async def get_job_queue() -> JobQueue:
+    """Dependency to get job queue instance."""
+    return JobQueue()
+
+
+async def process_decompilation_job(job_id: str, file_path: str, analysis_config: Dict[str, Any]):
+    """Background task to process decompilation job."""
+    job_queue = JobQueue()
+    
+    # Create decompilation config from analysis parameters
+    from ...decompilation.engine import DecompilationConfig
+    
+    # Map analysis depth to radare2 commands
+    analysis_depth = analysis_config.get("analysis_depth", "standard")
+    r2_analysis_mapping = {
+        "basic": "aa",
+        "standard": "aaa", 
+        "comprehensive": "aaaa"
+    }
+    
+    decompilation_config = DecompilationConfig(
+        r2_analysis_level=r2_analysis_mapping.get(analysis_depth, "aaa"),
+        extract_functions=True,
+        extract_strings=True,
+        extract_imports=True
+    )
+    
+    engine = DecompilationEngine(config=decompilation_config)
+    
+    try:
+        logger.info(f"Starting decompilation job {job_id}")
+        
+        # Update progress to processing
+        await job_queue.update_job_progress(
+            job_id=job_id,
+            status=JobStatus.PROCESSING,
+            progress_percentage=10.0,
+            current_stage="Starting decompilation",
+            worker_id="background-worker"
+        )
+        
+        # Perform decompilation
+        result = await engine.decompile_binary(file_path)
+        
+        # Update progress
+        await job_queue.update_job_progress(
+            job_id=job_id,
+            progress_percentage=90.0,
+            current_stage="Decompilation complete"
+        )
+        
+        # Store result (for now, we'll store in job metadata)
+        # In production, you might store large results in object storage
+        result_summary = {
+            "success": result.success,
+            "function_count": len(result.functions),
+            "import_count": len(result.imports), 
+            "string_count": len(result.strings),
+            "duration_seconds": result.duration_seconds,
+            "decompilation_id": result.decompilation_id
+        }
+        
+        # Complete the job
+        await job_queue.complete_job(job_id, "background-worker")
+        
+        # Store results in cache for retrieval
+        from ...cache.base import get_redis_client
+        redis = await get_redis_client()
+        await redis.set(
+            f"result:{job_id}",
+            str(result_summary),  # In production, use proper serialization
+            ttl=3600  # 1 hour TTL
+        )
+        
+        logger.info(f"Completed decompilation job {job_id}")
+        
+    except Exception as e:
+        logger.error(f"Decompilation job {job_id} failed: {e}")
+        await job_queue.fail_job(job_id, "background-worker", str(e))
+    finally:
+        # Clean up temporary file
+        try:
+            if os.path.exists(file_path):
+                os.unlink(file_path)
+        except Exception as e:
+            logger.warning(f"Failed to cleanup temporary file {file_path}: {e}")
+
+
 @router.post("/decompile")
 async def submit_decompilation_job(
     file: UploadFile = File(...),
     analysis_depth: str = Form(default="standard"),
     llm_provider: Optional[str] = Form(default=None),
+    llm_model: Optional[str] = Form(default=None),
+    llm_endpoint_url: Optional[str] = Form(default=None),
+    llm_api_key: Optional[str] = Form(default=None),
     translation_detail: str = Form(default="standard"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
-    engine: DecompilationEngine = Depends(get_decompilation_engine)
+    job_queue: JobQueue = Depends(get_job_queue)
 ):
     """
     Submit a binary file for decompilation and LLM translation.
@@ -68,30 +164,40 @@ async def submit_decompilation_job(
             detail=f"File too large. Maximum size: {settings.analysis.max_file_size_mb}MB"
         )
     
-    # Generate job ID
-    job_id = str(uuid.uuid4())
+    # Save uploaded file to temporary location
+    temp_dir = tempfile.gettempdir()
+    temp_file_path = os.path.join(temp_dir, f"upload_{uuid.uuid4().hex}_{file.filename}")
     
-    # Create decompilation configuration
-    from ...models.analysis.config import DecompilationConfig
-    from ...models.decompilation.results import DecompilationDepth, TranslationDetail
+    with open(temp_file_path, "wb") as temp_file:
+        temp_file.write(content)
     
-    try:
-        depth_enum = DecompilationDepth(analysis_depth.upper())
-    except ValueError:
-        depth_enum = DecompilationDepth.STANDARD
+    # Create analysis configuration
+    analysis_config = {
+        "analysis_depth": analysis_depth,
+        "llm_provider": llm_provider,
+        "llm_model": llm_model,
+        "llm_endpoint_url": llm_endpoint_url,
+        "llm_api_key": llm_api_key,
+        "translation_detail": translation_detail,
+        "file_path": temp_file_path
+    }
     
-    try:
-        detail_enum = TranslationDetail(translation_detail.upper())
-    except ValueError:
-        detail_enum = TranslationDetail.STANDARD
-    
-    config = DecompilationConfig(
-        decompilation_depth=depth_enum,
-        llm_provider=llm_provider,
-        translation_detail=detail_enum
+    # Enqueue the job
+    job_id = await job_queue.enqueue_job(
+        file_reference=temp_file_path,
+        filename=file.filename,
+        analysis_config=analysis_config,
+        priority="normal"
     )
     
-    # For now, return job info (actual processing would be added later)
+    # Start background processing
+    background_tasks.add_task(
+        process_decompilation_job,
+        job_id,
+        temp_file_path,
+        analysis_config
+    )
+    
     return JSONResponse(
         status_code=202,  # Accepted for async processing
         content={
@@ -124,7 +230,8 @@ async def test_decompilation():
 @router.get("/decompile/{job_id}")
 async def get_decompilation_result(
     job_id: str,
-    include_raw_data: bool = False
+    include_raw_data: bool = False,
+    job_queue: JobQueue = Depends(get_job_queue)
 ):
     """
     Get decompilation job status and results.
@@ -132,19 +239,63 @@ async def get_decompilation_result(
     Returns job status, progress information, and complete results
     when processing is finished.
     """
-    # Mock response for now
-    return {
+    # Get job progress from queue
+    progress = await job_queue.get_job_progress(job_id)
+    
+    if not progress:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    response = {
         "job_id": job_id,
-        "status": "completed",
-        "message": "Mock decompilation result"
+        "status": str(progress.status).lower(),
+        "progress_percentage": progress.progress_percentage,
+        "current_stage": progress.current_stage,
+        "worker_id": progress.worker_id,
+        "updated_at": progress.updated_at
     }
+    
+    if progress.error_message:
+        response["error_message"] = progress.error_message
+    
+    # If job is completed, try to get results
+    if "COMPLETED" in str(progress.status).upper():
+        try:
+            from ...cache.base import get_redis_client
+            redis = await get_redis_client()
+            result_data = await redis.get(f"result:{job_id}")
+            
+            if result_data:
+                response["results"] = result_data
+                response["message"] = "Decompilation completed successfully"
+            else:
+                response["message"] = "Decompilation completed but results not found"
+        except Exception as e:
+            logger.error(f"Failed to retrieve results for job {job_id}: {e}")
+            response["message"] = "Decompilation completed but results retrieval failed"
+    elif "FAILED" in str(progress.status).upper():
+        response["message"] = f"Decompilation failed: {progress.error_message or 'Unknown error'}"
+    elif "PROCESSING" in str(progress.status).upper():
+        response["message"] = f"Decompilation in progress: {progress.current_stage or 'Processing...'}"
+    else:
+        response["message"] = f"Job status: {progress.status}"
+    
+    return response
+
 
 
 @router.delete("/decompile/{job_id}")
-async def cancel_decompilation_job(job_id: str):
+async def cancel_decompilation_job(
+    job_id: str, 
+    job_queue: JobQueue = Depends(get_job_queue)
+):
     """
     Cancel a pending or in-progress decompilation job.
     
     Only jobs that are pending or in early processing stages can be cancelled.
     """
-    return {"message": f"Job {job_id} cancelled successfully"}
+    success = await job_queue.cancel_job(job_id)
+    
+    if success:
+        return {"message": f"Job {job_id} cancelled successfully"}
+    else:
+        raise HTTPException(status_code=400, detail="Job could not be cancelled")
