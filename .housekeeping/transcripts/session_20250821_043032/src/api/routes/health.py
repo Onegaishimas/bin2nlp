@@ -57,19 +57,12 @@ async def health_check():
     
     # Check Redis connection
     try:
-        redis_client = await get_redis_client()
-        is_healthy = await redis_client.health_check()
-        if is_healthy:
-            services_status["redis"] = {
-                "status": "healthy",
-                "response_time_ms": 1  # Health check is very fast
-            }
-        else:
-            services_status["redis"] = {
-                "status": "unhealthy",
-                "error": "Health check failed"
-            }
-            overall_status = "degraded"
+        redis_client = get_redis_client()
+        await redis_client.ping()
+        services_status["redis"] = {
+            "status": "healthy",
+            "response_time_ms": 1  # Ping is very fast
+        }
     except Exception as e:
         logger.error(f"Redis health check failed: {e}")
         services_status["redis"] = {
@@ -85,7 +78,7 @@ async def health_check():
         provider_stats = factory.get_provider_stats()
         
         services_status["llm_providers"] = {
-            "status": "healthy" if healthy_providers else "degraded",
+            "status": "healthy" if healthy_providers else "unhealthy",
             "healthy_count": len(healthy_providers),
             "total_configured": len(factory.provider_configs),
             "providers": {
@@ -98,19 +91,16 @@ async def health_check():
             }
         }
         
-        # Don't mark overall status as unhealthy if no providers are configured
-        # This allows the system to function without LLM providers for basic operations
-        if not healthy_providers and len(factory.provider_configs) > 0:
+        if not healthy_providers:
             overall_status = "degraded"
             
     except Exception as e:
-        logger.warning(f"LLM providers health check failed (non-critical): {e}")
+        logger.error(f"LLM providers health check failed: {e}")
         services_status["llm_providers"] = {
-            "status": "unavailable",
-            "error": str(e),
-            "note": "LLM providers not configured or unavailable"
+            "status": "unhealthy",
+            "error": str(e)
         }
-        # Don't mark overall status as degraded for LLM provider issues in basic health check
+        overall_status = "degraded"
     
     return HealthResponse(
         status=overall_status,
@@ -130,22 +120,19 @@ async def readiness_check():
     """
     try:
         # Check Redis
-        redis_client = await get_redis_client()
-        is_healthy = await redis_client.health_check()
-        if not is_healthy:
-            raise Exception("Redis health check failed")
+        redis_client = get_redis_client()
+        await redis_client.ping()
         
-        # Note: We don't require LLM providers for readiness
-        # The system can handle basic decompilation without LLM translation
-        # This makes the service more resilient to LLM provider issues
+        # Check at least one LLM provider is available
+        factory = LLMProviderFactory()
+        if not factory.get_healthy_providers():
+            raise BinaryAnalysisException("No healthy LLM providers available")
         
-        return {"status": "ready", "timestamp": datetime.utcnow().isoformat()}
+        return {"status": "ready"}
         
     except Exception as e:
         logger.error(f"Readiness check failed: {e}")
-        # Use FastAPI HTTPException instead of custom exception for proper error handling
-        from fastapi import HTTPException
-        raise HTTPException(status_code=503, detail=f"Service not ready: {str(e)}")
+        raise BinaryAnalysisException(f"Service not ready: {str(e)}")
 
 
 @router.get("/health/live")
@@ -176,7 +163,7 @@ async def system_info():
     llm_info = {}
     try:
         factory = LLMProviderFactory()
-        supported_providers = [str(p) for p in factory.get_supported_providers()]
+        supported_providers = factory.get_supported_providers()
         healthy_providers = factory.get_healthy_providers()
         
         llm_info = {
@@ -191,30 +178,18 @@ async def system_info():
             }
         }
     except Exception as e:
-        logger.warning(f"Failed to get LLM provider info (non-critical): {e}")
-        # Provide basic LLM info even if providers aren't configured
-        llm_info = {
-            "supported": ["openai", "anthropic", "gemini"],
-            "healthy": [],
-            "total_configured": 0,
-            "capabilities": {
-                "function_translation": True,
-                "import_explanation": True,
-                "string_interpretation": True,
-                "overall_summary": True
-            },
-            "note": "LLM providers not configured or unavailable"
-        }
+        logger.error(f"Failed to get LLM provider info: {e}")
+        llm_info = {"error": str(e)}
     
     return SystemInfoResponse(
         version="1.0.0",
         environment=settings.environment,
         debug_mode=settings.debug,
-        supported_formats=settings.analysis.supported_formats,
+        supported_formats=["PE", "ELF", "Mach-O"],
         llm_providers=llm_info,
         limits={
-            "max_file_size_mb": settings.analysis.max_file_size_mb,
-            "max_timeout_seconds": settings.analysis.max_timeout_seconds,
+            "max_file_size_mb": settings.decompilation.max_file_size_mb,
+            "max_timeout_seconds": settings.decompilation.max_timeout_seconds,
             "supported_architectures": ["x86", "x64", "ARM", "ARM64"]
         }
     )

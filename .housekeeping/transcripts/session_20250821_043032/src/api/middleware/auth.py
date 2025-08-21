@@ -47,13 +47,8 @@ class APIKeyManager:
     """
     
     def __init__(self):
-        self.redis = None  # Will be initialized async
+        self.redis = get_redis_client()
         self.settings = get_settings()
-    
-    async def _ensure_redis_client(self):
-        """Ensure Redis client is initialized."""
-        if self.redis is None:
-            self.redis = await get_redis_client()
     
     async def validate_api_key(self, api_key: str) -> Optional[Dict[str, Any]]:
         """
@@ -65,7 +60,6 @@ class APIKeyManager:
         Returns:
             Dictionary with user info if valid, None if invalid
         """
-        await self._ensure_redis_client()
         if not api_key or not api_key.startswith(self.settings.security.api_key_prefix):
             return None
         
@@ -126,7 +120,6 @@ class APIKeyManager:
         Returns:
             Tuple of (api_key, key_id)
         """
-        await self._ensure_redis_client()
         # Generate API key
         import secrets
         key_id = secrets.token_hex(8)  # 16 character key ID
@@ -148,7 +141,7 @@ class APIKeyManager:
             "permissions": ",".join(permissions or ["read"]),
             "status": "active",
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "last_used_at": ""  # Use empty string instead of None
+            "last_used_at": None
         }
         
         if expires_at:
@@ -172,7 +165,6 @@ class APIKeyManager:
         Returns:
             True if successfully revoked, False if key not found
         """
-        await self._ensure_redis_client()
         key_hash = self._hash_api_key(api_key)
         key_data = await self.redis.hgetall(f"api_key:{key_hash}")
         

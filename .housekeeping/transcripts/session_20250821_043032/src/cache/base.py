@@ -487,51 +487,6 @@ class RedisClient:
         async with self._operation_context("info") as client:
             return await client.info(section)
     
-    async def hset(self, key: str, mapping: Dict[str, Any] = None, **kwargs) -> int:
-        """
-        Set multiple hash fields.
-        
-        Args:
-            key: Hash key
-            mapping: Dictionary of field-value pairs
-            **kwargs: Additional field-value pairs
-            
-        Returns:
-            int: Number of fields added
-        """
-        async with self._operation_context("hset") as client:
-            if mapping:
-                return await client.hset(key, mapping=mapping)
-            else:
-                return await client.hset(key, **kwargs)
-    
-    async def hgetall(self, key: str) -> Dict[str, str]:
-        """
-        Get all fields from a hash.
-        
-        Args:
-            key: Hash key
-            
-        Returns:
-            Dict[str, str]: All field-value pairs
-        """
-        async with self._operation_context("hgetall") as client:
-            return await client.hgetall(key)
-    
-    async def sadd(self, key: str, *values: str) -> int:
-        """
-        Add members to a set.
-        
-        Args:
-            key: Set key
-            *values: Values to add
-            
-        Returns:
-            int: Number of elements added
-        """
-        async with self._operation_context("sadd") as client:
-            return await client.sadd(key, *values)
-    
     # Advanced operations
     
     async def pipeline(self):

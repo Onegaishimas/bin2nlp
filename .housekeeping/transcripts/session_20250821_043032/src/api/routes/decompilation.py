@@ -245,15 +245,9 @@ async def get_decompilation_result(
     if not progress:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    # Convert status to clean string (remove enum prefix if present)
-    status_str = str(progress.status)
-    if "." in status_str:
-        status_str = status_str.split(".")[-1]  # Get part after the dot
-    status_str = status_str.lower()
-    
     response = {
         "job_id": job_id,
-        "status": status_str,
+        "status": str(progress.status).lower(),
         "progress_percentage": progress.progress_percentage,
         "current_stage": progress.current_stage,
         "worker_id": progress.worker_id,
@@ -264,7 +258,7 @@ async def get_decompilation_result(
         response["error_message"] = progress.error_message
     
     # If job is completed, try to get results
-    if "completed" in status_str:
+    if "COMPLETED" in str(progress.status).upper():
         try:
             from ...cache.base import get_redis_client
             redis = await get_redis_client()
@@ -278,12 +272,12 @@ async def get_decompilation_result(
         except Exception as e:
             logger.error(f"Failed to retrieve results for job {job_id}: {e}")
             response["message"] = "Decompilation completed but results retrieval failed"
-    elif "failed" in status_str:
+    elif "FAILED" in str(progress.status).upper():
         response["message"] = f"Decompilation failed: {progress.error_message or 'Unknown error'}"
-    elif "processing" in status_str:
+    elif "PROCESSING" in str(progress.status).upper():
         response["message"] = f"Decompilation in progress: {progress.current_stage or 'Processing...'}"
     else:
-        response["message"] = f"Job status: {status_str}"
+        response["message"] = f"Job status: {progress.status}"
     
     return response
 
@@ -299,19 +293,6 @@ async def cancel_decompilation_job(
     
     Only jobs that are pending or in early processing stages can be cancelled.
     """
-    # First check if job exists
-    progress = await job_queue.get_job_progress(job_id)
-    if not progress:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
-    # Check if job can be cancelled (not already terminal)
-    status_str = str(progress.status).lower()
-    if "." in status_str:
-        status_str = status_str.split(".")[-1]
-    
-    if status_str in ["completed", "failed", "cancelled"]:
-        raise HTTPException(status_code=400, detail=f"Cannot cancel job in {status_str} state")
-    
     success = await job_queue.cancel_job(job_id)
     
     if success:
