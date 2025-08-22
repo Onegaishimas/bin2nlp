@@ -2,8 +2,8 @@
 
 # 1. Load core project context
 @CLAUDE.md
-@tasks/001_FTASKS|Phase1_Integrated_System.md
-@adrs/000_PADR|bin2nlp.md
+@0xcc/tasks/001_FTASKS|Phase1_Integrated_System.md
+@0xcc/adrs/000_PADR|bin2nlp.md
 
 # 2. Load session resume script
 @.housekeeping/resume_session_20250821_043032.md

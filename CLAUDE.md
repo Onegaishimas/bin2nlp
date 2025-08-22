@@ -64,14 +64,14 @@
 ls -la */
 
 # Load project context (after Project PRD exists)
-@!xcc/prds/000_PPRD|[project-name].md
-@!xcc/adrs/000_PADR|[project-name].md
+@0xcc/prds/000_PPRD|[project-name].md
+@0xcc/adrs/000_PADR|[project-name].md
 
 # Load current work area based on phase
-@!xcc/prds/      # For PRD work
-@!xcc/tdds/      # For TDD work  
-@!xcc/tids/      # For TID work
-@!xcc/tasks/     # For task execution
+@0xcc/prds/      # For PRD work
+@0xcc/tdds/      # For TDD work  
+@0xcc/tids/      # For TID work
+@0xcc/tasks/     # For task execution
 ```
 
 ## Housekeeping Commands
@@ -111,8 +111,8 @@ hk-break    # Break/interruption
 
 # 3. Paste the resume commands:
 @CLAUDE.md
-@!xcc/tasks/001_FTASKS|Phase1_Integrated_System.md
-@!xcc/adrs/000_PADR|bin2nlp.md
+@0xcc/tasks/001_FTASKS|Phase1_Integrated_System.md
+@0xcc/adrs/000_PADR|bin2nlp.md
 @.housekeeping/QUICK_RESUME.md
 /compact
 # ✅ Full context restored!
@@ -167,24 +167,24 @@ hk-break    # Break/interruption
 
 ### Document Creation Sequence
 1. **Project Foundation**
-   - `000_PPRD|[project-name].md` → `/!xcc/prds/` (Project PRD)
-   - `000_PADR|[project-name].md` → `/!xcc/adrs/` (Architecture Decision Record)
+   - `000_PPRD|[project-name].md` → `/0xcc/prds/` (Project PRD)
+   - `000_PADR|[project-name].md` → `/0xcc/adrs/` (Architecture Decision Record)
    - Update this CLAUDE.md with Project Standards from ADR
 
 2. **Feature Development** (repeat for each feature)
-   - `[###]_FPRD|[feature-name].md` → `/!xcc/prds/` (Feature PRD)
-   - `[###]_FTDD|[feature-name].md` → `/!xcc/tdds/` (Technical Design Doc)
-   - `[###]_FTID|[feature-name].md` → `/!xcc/tids/` (Technical Implementation Doc)
-   - `[###]_FTASKS|[feature-name].md` → `/!xcc/tasks/` (Task List)
+   - `[###]_FPRD|[feature-name].md` → `/0xcc/prds/` (Feature PRD)
+   - `[###]_FTDD|[feature-name].md` → `/0xcc/tdds/` (Technical Design Doc)
+   - `[###]_FTID|[feature-name].md` → `/0xcc/tids/` (Technical Implementation Doc)
+   - `[###]_FTASKS|[feature-name].md` → `/0xcc/tasks/` (Task List)
 
 ### Instruction Documents Reference
-- `@!xcc/instruct/001_create-project-prd.md` - Creates project vision and feature breakdown
-- `@!xcc/instruct/002_create-adr.md` - Establishes tech stack and standards
-- `@!xcc/instruct/003_create-feature-prd.md` - Details individual feature requirements
-- `@!xcc/instruct/004_create-tdd.md` - Creates technical architecture and design
-- `@!xcc/instruct/005_create-tid.md` - Provides implementation guidance and coding hints
-- `@!xcc/instruct/006_generate-tasks.md` - Generates actionable development tasks
-- `@!xcc/instruct/007_process-task-list.md` - Guides task execution and progress tracking
+- `@0xcc/instruct/001_create-project-prd.md` - Creates project vision and feature breakdown
+- `@0xcc/instruct/002_create-adr.md` - Establishes tech stack and standards
+- `@0xcc/instruct/003_create-feature-prd.md` - Details individual feature requirements
+- `@0xcc/instruct/004_create-tdd.md` - Creates technical architecture and design
+- `@0xcc/instruct/005_create-tid.md` - Provides implementation guidance and coding hints
+- `@0xcc/instruct/006_generate-tasks.md` - Generates actionable development tasks
+- `@0xcc/instruct/007_process-task-list.md` - Guides task execution and progress tracking
 
 ## Document Inventory
 
@@ -261,14 +261,14 @@ git commit -m "docs: completed [task] - Next: [specific action]"
 # Mild context loss
 @CLAUDE.md
 ls -la */
-@!xcc/instruct/[current-phase].md
+@0xcc/instruct/[current-phase].md
 
 # Severe context loss  
 @CLAUDE.md
-@!xcc/prds/000_PPRD|[project-name].md
-@!xcc/adrs/000_PADR|[project-name].md
+@0xcc/prds/000_PPRD|[project-name].md
+@0xcc/adrs/000_PADR|[project-name].md
 ls -la */
-@!xcc/instruct/
+@0xcc/instruct/
 ```
 
 ## Progress Tracking
@@ -446,8 +446,8 @@ After each development session, update:
 
 ### Session 1: 2025-08-14 - Project Foundation Setup
 - **Accomplished:** Created project structure, initial CLAUDE.md, completed Project PRD
-- **Next:** Create Architecture Decision Record using @!xcc/instruct/002_create-adr.md
-- **Files Created:** CLAUDE.md, folder structure (!xcc/prds/, !xcc/adrs/, !xcc/tdds/, !xcc/tids/, !xcc/tasks/, docs/, !xcc/instruct/), 000_PPRD|bin2nlp.md
+- **Next:** Create Architecture Decision Record using @0xcc/instruct/002_create-adr.md
+- **Files Created:** CLAUDE.md, folder structure (0xcc/prds/, 0xcc/adrs/, 0xcc/tdds/, 0xcc/tids/, 0xcc/tasks/, docs/, 0xcc/instruct/), 000_PPRD|bin2nlp.md
 - **Duration:** ~1 hour
 
 ### Session 2: 2025-08-15 - Architecture Decision Record Creation
@@ -491,7 +491,7 @@ After each development session, update:
 
 | Directory | Purpose | Contents |
 |-----------|---------|----------|
-| **`!xcc/`** | 📋 Project Development Docs | AI framework documents: `prds/`, `adrs/`, `tasks/`, `tdds/`, `tids/`, `instruct/` (sorts to top with `!`) |
+| **`0xcc/`** | 📋 Project Development Docs | AI framework documents: `prds/`, `adrs/`, `tasks/`, `tdds/`, `tids/`, `instruct/` (sorts to top with `!`) |
 | **`.housekeeping/`** | 🗃️ Development Workflows | Session transcripts, snapshots, development protocols, resume scripts, and workflow automation |
 
 ### **🔧 Configuration & Environment Files**
@@ -513,7 +513,7 @@ After each development session, update:
 ### **📊 File Organization Philosophy**
 
 - **Root Level**: Only essential files that developers expect (11 core files)
-- **`!xcc/`**: Development documentation (sorts to top, easily accessible)
+- **`0xcc/`**: Development documentation (sorts to top, easily accessible)
 - **`.housekeeping/`**: Session management and workflow automation  
 - **Standard Python**: Follows PEP 518 (pyproject.toml) and community conventions
 - **Clean Separation**: User docs vs. development docs vs. source code
@@ -533,7 +533,7 @@ After each development session, update:
 ```
 project-root/
 ├── CLAUDE.md                    # This file
-├── !xcc/                        # Project development documents
+├── 0xcc/                        # Project development documents
 │   ├── adrs/                    # Architecture Decision Records
 │   ├── instruct/                # Framework instruction files
 │   ├── prds/                    # Product Requirements Documents
@@ -549,9 +549,9 @@ project-root/
 - **Sequential:** Use 001, 002, 003... for features in priority order
 
 ### Emergency Contacts & Resources
-- **Framework Documentation:** @!xcc/instruct/000_README.md
-- **Current Project PRD:** @!xcc/prds/000_PPRD|[project-name].md (after creation)
-- **Tech Standards:** @!xcc/adrs/000_PADR|[project-name].md (after creation)
+- **Framework Documentation:** @0xcc/instruct/000_README.md
+- **Current Project PRD:** @0xcc/prds/000_PPRD|[project-name].md (after creation)
+- **Tech Standards:** @0xcc/adrs/000_PADR|[project-name].md (after creation)
 
 ---
 
