@@ -14,7 +14,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from ...core.logging import get_logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ...core.config import get_settings
 from ...core.metrics import get_metrics_collector, get_performance_summary, OperationType
@@ -45,6 +45,16 @@ class CreateAPIKeyRequest(BaseModel):
     permissions: List[str] = Field(default=["read"], description="List of permissions")
     expires_days: Optional[int] = Field(default=None, ge=1, le=3650, description="Key expiry in days")
     description: Optional[str] = Field(default=None, max_length=255, description="Key description")
+    
+    @field_validator('permissions')
+    @classmethod
+    def validate_permissions(cls, v):
+        """Validate that permissions are from allowed list."""
+        valid_permissions = {"read", "write", "admin"}
+        for perm in v:
+            if perm not in valid_permissions:
+                raise ValueError(f"Invalid permission '{perm}'. Must be one of: {', '.join(sorted(valid_permissions))}")
+        return v
 
 
 class APIKeyInfo(BaseModel):
@@ -147,6 +157,13 @@ async def list_user_api_keys(
     
     Requires admin permission.
     """
+    # Prevent directory traversal attacks
+    if any(char in user_id for char in ['/', '\\', '.', ':', '<', '>', '|', '*', '?']):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user_id format"
+        )
+    
     api_key_manager = APIKeyManager()
     
     try:
@@ -172,6 +189,19 @@ async def revoke_api_key(
     
     Requires admin permission.
     """
+    # Prevent directory traversal attacks
+    if any(char in user_id for char in ['/', '\\', '.', ':', '<', '>', '|', '*', '?']):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user_id format"
+        )
+    
+    if any(char in key_id for char in ['/', '\\', '.', ':', '<', '>', '|', '*', '?']):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid key_id format"
+        )
+    
     api_key_manager = APIKeyManager()
     
     try:
@@ -467,7 +497,7 @@ async def create_dev_api_key(
 async def get_current_metrics(
     request: Request,
     current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin", "read"])),
+    auth_check = Depends(require_permission(["admin"])),
 ):
     """
     Get current snapshot of all metrics.
@@ -498,7 +528,7 @@ async def get_performance_metrics(
     operation_type: Optional[str] = None,
     time_window_minutes: int = 60,
     current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin", "read"])),
+    auth_check = Depends(require_permission(["admin"])),
 ):
     """
     Get performance summary for operations.
@@ -552,7 +582,7 @@ async def get_decompilation_metrics(
     request: Request,
     time_window_minutes: int = 60,
     current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin", "read"])),
+    auth_check = Depends(require_permission(["admin"])),
 ):
     """Get detailed decompilation performance metrics."""
     try:
@@ -577,7 +607,7 @@ async def get_llm_metrics(
     request: Request,
     time_window_minutes: int = 60,
     current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin", "read"])),
+    auth_check = Depends(require_permission(["admin"])),
 ):
     """Get detailed LLM provider performance metrics."""
     try:
@@ -603,7 +633,7 @@ async def get_llm_metrics(
 async def get_all_circuit_breakers(
     request: Request,
     current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin", "read"])),
+    auth_check = Depends(require_permission(["admin"])),
 ):
     """Get status of all circuit breakers."""
     try:
@@ -629,7 +659,7 @@ async def get_circuit_breaker_status(
     circuit_name: str,
     request: Request,
     current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin", "read"])),
+    auth_check = Depends(require_permission(["admin"])),
 ):
     """Get detailed status of a specific circuit breaker."""
     try:
@@ -750,7 +780,7 @@ async def force_open_circuit_breaker(
 async def health_check_all_circuits(
     request: Request,
     current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin", "read"])),
+    auth_check = Depends(require_permission(["admin"])),
 ):
     """Perform health checks on all circuit breakers."""
     try:
@@ -778,7 +808,7 @@ async def health_check_all_circuits(
 async def get_overview_dashboard(
     request: Request,
     current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin", "read"])),
+    auth_check = Depends(require_permission(["admin"])),
 ):
     """Get the main system overview dashboard."""
     try:
@@ -802,7 +832,7 @@ async def get_overview_dashboard(
 async def get_performance_dashboard(
     request: Request,
     current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin", "read"])),
+    auth_check = Depends(require_permission(["admin"])),
 ):
     """Get detailed performance dashboard."""
     try:
@@ -827,7 +857,7 @@ async def get_all_alerts(
     request: Request,
     include_history: bool = False,
     current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin", "read"])),
+    auth_check = Depends(require_permission(["admin"])),
 ):
     """Get all alerts with optional history."""
     try:
@@ -955,7 +985,7 @@ async def resolve_alert(
 async def get_prometheus_metrics(
     request: Request,
     current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin", "read"])),
+    auth_check = Depends(require_permission(["admin"])),
 ):
     """Get Prometheus-format metrics for external monitoring integration."""
     try:
@@ -979,7 +1009,7 @@ async def get_prometheus_metrics(
 async def get_health_summary(
     request: Request,
     current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin", "read"])),
+    auth_check = Depends(require_permission(["admin"])),
 ):
     """Get comprehensive system health summary."""
     try:

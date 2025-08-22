@@ -78,50 +78,55 @@ class APIKeyManager:
         Returns:
             Dictionary with user info if valid, None if invalid
         """
-        await self._ensure_redis_client()
-        if not api_key or not api_key.startswith(self.settings.security.api_key_prefix):
+        try:
+            await self._ensure_redis_client()
+            if not api_key or not api_key.startswith(self.settings.security.api_key_prefix):
+                return None
+            
+            # Hash the API key for secure storage lookup
+            key_hash = self._hash_api_key(api_key)
+            
+            # Look up key metadata in Redis
+            raw_key_data = await self.redis.hgetall(f"api_key:{key_hash}")
+            if not raw_key_data:
+                logger.warning(f"Invalid API key attempted: {api_key[:10]}...")
+                return None
+            
+            # Decode Redis response (handles both bytes and string responses)
+            key_data = self._decode_redis_dict(raw_key_data)
+            
+            # Check if key is expired
+            expires_at = key_data.get("expires_at")
+            if expires_at and datetime.fromisoformat(expires_at) < datetime.now(timezone.utc):
+                logger.warning(f"Expired API key used: {api_key[:10]}...")
+                await self.redis.delete(f"api_key:{key_hash}")
+                return None
+            
+            # Check if key is disabled
+            if key_data.get("status") != "active":
+                logger.warning(f"Inactive API key used: {api_key[:10]}...")
+                return None
+            
+            # Update last used timestamp
+            await self.redis.hset(
+                f"api_key:{key_hash}",
+                "last_used_at",
+                datetime.now(timezone.utc).isoformat()
+            )
+            
+            # Return user metadata
+            return {
+                "user_id": key_data.get("user_id"),
+                "key_id": key_data.get("key_id"),
+                "tier": key_data.get("tier", "basic"),
+                "permissions": key_data.get("permissions", "read").split(","),
+                "created_at": key_data.get("created_at"),
+                "last_used_at": datetime.now(timezone.utc).isoformat()
+            }
+        except Exception as e:
+            # Log the error but don't expose it to prevent information leakage
+            logger.error(f"Error during API key validation: {e}")
             return None
-        
-        # Hash the API key for secure storage lookup
-        key_hash = self._hash_api_key(api_key)
-        
-        # Look up key metadata in Redis
-        raw_key_data = await self.redis.hgetall(f"api_key:{key_hash}")
-        if not raw_key_data:
-            logger.warning(f"Invalid API key attempted: {api_key[:10]}...")
-            return None
-        
-        # Decode Redis response (handles both bytes and string responses)
-        key_data = self._decode_redis_dict(raw_key_data)
-        
-        # Check if key is expired
-        expires_at = key_data.get("expires_at")
-        if expires_at and datetime.fromisoformat(expires_at) < datetime.now(timezone.utc):
-            logger.warning(f"Expired API key used: {api_key[:10]}...")
-            await self.redis.delete(f"api_key:{key_hash}")
-            return None
-        
-        # Check if key is disabled
-        if key_data.get("status") != "active":
-            logger.warning(f"Inactive API key used: {api_key[:10]}...")
-            return None
-        
-        # Update last used timestamp
-        await self.redis.hset(
-            f"api_key:{key_hash}",
-            "last_used_at",
-            datetime.now(timezone.utc).isoformat()
-        )
-        
-        # Return user metadata
-        return {
-            "user_id": key_data.get("user_id"),
-            "key_id": key_data.get("key_id"),
-            "tier": key_data.get("tier", "basic"),
-            "permissions": key_data.get("permissions", "read").split(","),
-            "created_at": key_data.get("created_at"),
-            "last_used_at": datetime.now(timezone.utc).isoformat()
-        }
     
     async def create_api_key(
         self,
@@ -273,9 +278,11 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         
         if not api_key:
             if self.require_auth:
-                raise AuthenticationError(
-                    "API key required. Provide it in the Authorization header as 'Bearer <api_key>'",
-                    {"WWW-Authenticate": "Bearer"}
+                from fastapi.responses import JSONResponse
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={"detail": "Authentication required"},
+                    headers={"WWW-Authenticate": "Bearer"}
                 )
             else:
                 # Continue without authentication (development mode)
@@ -285,9 +292,11 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         # Validate API key
         user_info = await self.api_key_manager.validate_api_key(api_key)
         if not user_info:
-            raise AuthenticationError(
-                "Invalid or expired API key",
-                {"WWW-Authenticate": "Bearer"}
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "Invalid or expired API key"},
+                headers={"WWW-Authenticate": "Bearer"}
             )
         
         # Set user context on request
@@ -356,7 +365,10 @@ def require_auth(request: Request) -> Dict[str, Any]:
     """
     user = get_current_user(request)
     if not user:
-        raise AuthenticationError("Authentication required")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required"
+        )
     return user
 
 
