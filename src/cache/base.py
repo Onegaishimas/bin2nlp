@@ -65,6 +65,12 @@ class RedisClient:
         self._error_count = 0
         self._total_response_time = 0.0
     
+    def _decode_redis_value(self, value):
+        """Helper to decode Redis values that might be bytes."""
+        if isinstance(value, bytes):
+            return value.decode('utf-8')
+        return value
+    
     async def connect(self) -> None:
         """
         Establish Redis connection with retry logic.
@@ -487,12 +493,14 @@ class RedisClient:
         async with self._operation_context("info") as client:
             return await client.info(section)
     
-    async def hset(self, key: str, mapping: Dict[str, Any] = None, **kwargs) -> int:
+    async def hset(self, key: str, field: str = None, value: Any = None, mapping: Dict[str, Any] = None, **kwargs) -> int:
         """
-        Set multiple hash fields.
+        Set hash fields.
         
         Args:
             key: Hash key
+            field: Field name (for single field operations)
+            value: Field value (for single field operations)
             mapping: Dictionary of field-value pairs
             **kwargs: Additional field-value pairs
             
@@ -500,7 +508,10 @@ class RedisClient:
             int: Number of fields added
         """
         async with self._operation_context("hset") as client:
-            if mapping:
+            if field is not None and value is not None:
+                # Single field-value operation
+                return await client.hset(key, field, value)
+            elif mapping:
                 return await client.hset(key, mapping=mapping)
             else:
                 return await client.hset(key, **kwargs)
@@ -516,7 +527,12 @@ class RedisClient:
             Dict[str, str]: All field-value pairs
         """
         async with self._operation_context("hgetall") as client:
-            return await client.hgetall(key)
+            raw_data = await client.hgetall(key)
+            # Decode bytes to strings if needed
+            return {
+                self._decode_redis_value(k): self._decode_redis_value(v)
+                for k, v in raw_data.items()
+            }
     
     async def sadd(self, key: str, *values: str) -> int:
         """
@@ -531,6 +547,96 @@ class RedisClient:
         """
         async with self._operation_context("sadd") as client:
             return await client.sadd(key, *values)
+    
+    async def smembers(self, key: str) -> set:
+        """
+        Get all members of a set.
+        
+        Args:
+            key: Set key
+            
+        Returns:
+            set: All members of the set
+        """
+        async with self._operation_context("smembers") as client:
+            raw_data = await client.smembers(key)
+            # Decode bytes to strings if needed
+            return {self._decode_redis_value(item) for item in raw_data}
+    
+    async def zadd(self, key: str, mapping: Dict[str, float], **kwargs) -> int:
+        """
+        Add members to a sorted set.
+        
+        Args:
+            key: Sorted set key
+            mapping: Dictionary of member-score pairs
+            **kwargs: Additional options (nx, xx, ch, incr)
+            
+        Returns:
+            int: Number of elements added
+        """
+        async with self._operation_context("zadd") as client:
+            return await client.zadd(key, mapping, **kwargs)
+    
+    async def zremrangebyscore(self, key: str, min_score: float, max_score: float) -> int:
+        """
+        Remove members from sorted set by score range.
+        
+        Args:
+            key: Sorted set key
+            min_score: Minimum score (inclusive)
+            max_score: Maximum score (inclusive)
+            
+        Returns:
+            int: Number of elements removed
+        """
+        async with self._operation_context("zremrangebyscore") as client:
+            return await client.zremrangebyscore(key, min_score, max_score)
+    
+    async def zcount(self, key: str, min_score: float, max_score: float) -> int:
+        """
+        Count members in sorted set within score range.
+        
+        Args:
+            key: Sorted set key
+            min_score: Minimum score (inclusive)  
+            max_score: Maximum score (inclusive)
+            
+        Returns:
+            int: Number of elements in range
+        """
+        async with self._operation_context("zcount") as client:
+            return await client.zcount(key, min_score, max_score)
+    
+    async def zcard(self, key: str) -> int:
+        """
+        Get the number of members in a sorted set.
+        
+        Args:
+            key: Sorted set key
+            
+        Returns:
+            int: Number of elements in the sorted set
+        """
+        async with self._operation_context("zcard") as client:
+            return await client.zcard(key)
+    
+    async def zrange(self, key: str, start: int, stop: int, withscores: bool = False, **kwargs):
+        """
+        Get members from a sorted set by index range.
+        
+        Args:
+            key: Sorted set key
+            start: Start index
+            stop: Stop index
+            withscores: Whether to return scores along with members
+            **kwargs: Additional arguments
+            
+        Returns:
+            List of members or (member, score) tuples
+        """
+        async with self._operation_context("zrange") as client:
+            return await client.zrange(key, start, stop, withscores=withscores, **kwargs)
     
     # Advanced operations
     
@@ -560,6 +666,80 @@ class RedisClient:
         """
         async with self._operation_context("transaction") as client:
             return await client.transaction(func, *watches, **kwargs)
+    
+    async def eval(self, script: str, numkeys: int, *keys_and_args):
+        """
+        Execute a Lua script.
+        
+        Args:
+            script: Lua script to execute
+            numkeys: Number of keys in the script
+            *keys_and_args: Keys and arguments for the script
+            
+        Returns:
+            Script execution result
+        """
+        async with self._operation_context("eval") as client:
+            return await client.eval(script, numkeys, *keys_and_args)
+    
+    async def scan(self, cursor: int = 0, match: str = None, count: int = None, _type: str = None):
+        """
+        Incrementally iterate the key space.
+        
+        Args:
+            cursor: Cursor position (0 to start)
+            match: Pattern to match keys against
+            count: Number of keys to return per iteration
+            _type: Type of keys to return
+            
+        Returns:
+            Tuple of (new_cursor, keys_list)
+        """
+        async with self._operation_context("scan") as client:
+            return await client.scan(cursor=cursor, match=match, count=count, _type=_type)
+    
+    async def scan_iter(self, match: str = None, count: int = None, _type: str = None):
+        """
+        Iterate over keys in the database.
+        
+        Args:
+            match: Pattern to match keys against
+            count: Number of keys to return per iteration
+            _type: Type of keys to return
+            
+        Returns:
+            AsyncIterator over matching keys
+        """
+        async with self._operation_context("scan_iter") as client:
+            async for key in client.scan_iter(match=match, count=count, _type=_type):
+                yield key
+    
+    async def srem(self, key: str, *values: str) -> int:
+        """
+        Remove members from a set.
+        
+        Args:
+            key: Set key
+            *values: Values to remove
+            
+        Returns:
+            int: Number of elements removed
+        """
+        async with self._operation_context("srem") as client:
+            return await client.srem(key, *values)
+    
+    async def scard(self, key: str) -> int:
+        """
+        Get the number of members in a set.
+        
+        Args:
+            key: Set key
+            
+        Returns:
+            int: Number of elements in the set
+        """
+        async with self._operation_context("scard") as client:
+            return await client.scard(key)
     
     # Metrics and status
     

@@ -55,6 +55,19 @@ class APIKeyManager:
         if self.redis is None:
             self.redis = await get_redis_client()
     
+    def _decode_redis_value(self, value):
+        """Helper to decode Redis values that might be bytes."""
+        if isinstance(value, bytes):
+            return value.decode('utf-8')
+        return value
+    
+    def _decode_redis_dict(self, data):
+        """Helper to decode Redis dictionary with byte keys/values."""
+        return {
+            self._decode_redis_value(k): self._decode_redis_value(v)
+            for k, v in data.items()
+        }
+    
     async def validate_api_key(self, api_key: str) -> Optional[Dict[str, Any]]:
         """
         Validate API key and return user metadata.
@@ -73,10 +86,13 @@ class APIKeyManager:
         key_hash = self._hash_api_key(api_key)
         
         # Look up key metadata in Redis
-        key_data = await self.redis.hgetall(f"api_key:{key_hash}")
-        if not key_data:
+        raw_key_data = await self.redis.hgetall(f"api_key:{key_hash}")
+        if not raw_key_data:
             logger.warning(f"Invalid API key attempted: {api_key[:10]}...")
             return None
+        
+        # Decode Redis response (handles both bytes and string responses)
+        key_data = self._decode_redis_dict(raw_key_data)
         
         # Check if key is expired
         expires_at = key_data.get("expires_at")
@@ -202,6 +218,7 @@ class APIKeyManager:
         Returns:
             List of key metadata dictionaries
         """
+        await self._ensure_redis_client()
         key_ids = await self.redis.smembers(f"user_keys:{user_id}")
         keys_info = []
         
@@ -213,6 +230,7 @@ class APIKeyManager:
                 if key_data.get("key_id") == key_id:
                     keys_info.append({
                         "key_id": key_id,
+                        "user_id": user_id,  # Add the user_id field
                         "tier": key_data.get("tier"),
                         "permissions": key_data.get("permissions", "").split(","),
                         "status": key_data.get("status"),
@@ -342,23 +360,41 @@ def require_auth(request: Request) -> Dict[str, Any]:
     return user
 
 
-def require_permission(permission: str):
+def require_permission(permission):
     """
-    Dependency factory to require specific permission.
+    Dependency factory to require specific permission(s).
     
     Args:
-        permission: Required permission
+        permission: Required permission (string) or list of permissions (any one required)
         
     Returns:
         Dependency function
     """
     def check_permission(request: Request) -> Dict[str, Any]:
         user = require_auth(request)
-        if permission not in user.get("permissions", []):
+        user_permissions = user.get("permissions", [])
+        
+        # Handle both single permission and list of permissions
+        if isinstance(permission, str):
+            # Single permission required
+            if permission not in user_permissions:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Permission '{permission}' required"
+                )
+        elif isinstance(permission, list):
+            # Any one of the permissions required
+            if not any(perm in user_permissions for perm in permission):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"One of permissions {permission} required"
+                )
+        else:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission '{permission}' required"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid permission specification"
             )
+        
         return user
     
     return check_permission

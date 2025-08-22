@@ -300,6 +300,11 @@ class SecuritySettings(BaseSettings):
         default_factory=list,
         description="List of trusted proxy IP addresses"
     )
+    
+    require_api_keys: bool = Field(
+        default=True,
+        description="Require API key authentication for protected endpoints"
+    )
 
 
 class CacheSettings(BaseSettings):

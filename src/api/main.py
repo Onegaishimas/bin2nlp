@@ -167,9 +167,9 @@ def create_app() -> FastAPI:
             "name": "MIT License",
             "url": "https://opensource.org/licenses/MIT"
         },
-        docs_url="/docs" if settings.debug or not settings.is_production else None,
-        redoc_url="/redoc" if settings.debug or not settings.is_production else None,
-        openapi_url="/openapi.json" if settings.debug or not settings.is_production else None,
+        docs_url="/docs",
+        redoc_url="/redoc", 
+        openapi_url="/openapi.json",
         lifespan=lifespan,
         servers=[
             {
@@ -206,14 +206,25 @@ def create_app() -> FastAPI:
     app.add_middleware(ErrorHandlingMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     
-    # Production middleware (disabled in development/testing by default)
+    # Authentication and rate limiting middleware
+    # Add rate limiting in production
     if settings.is_production:
         app.add_middleware(RateLimitingMiddleware)
-        app.add_middleware(
-            AuthenticationMiddleware,
-            require_auth=True  # Require auth in production
-        )
+    
+    # Add authentication middleware based on security settings
+    require_auth = settings.security.require_api_keys
+    app.add_middleware(
+        AuthenticationMiddleware,
+        require_auth=require_auth
+    )
+    
+    # Log middleware configuration
+    if settings.is_production and require_auth:
         logger.info("Production middleware enabled (authentication + rate limiting)")
+    elif settings.is_production:
+        logger.info("Production middleware enabled (rate limiting only)")
+    elif require_auth:
+        logger.info("Development mode with authentication enabled")
     else:
         logger.info("Development mode - authentication and rate limiting disabled")
     

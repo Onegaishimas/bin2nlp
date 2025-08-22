@@ -465,11 +465,15 @@ class LLMProviderRateLimiter:
     
     async def _get_window_count(self, key: str, now: int, window_seconds: int) -> int:
         """Get current count in sliding window."""
+        redis = await self._get_redis()
+        if not redis:
+            return 0
+            
         window_start = now - window_seconds
         
         # Clean expired entries and count
-        await self.redis.zremrangebyscore(key, 0, window_start)
-        return await self.redis.zcard(key)
+        await redis.zremrangebyscore(key, 0, window_start)
+        return await redis.zcard(key)
     
     async def _increment_window(
         self,
@@ -479,11 +483,15 @@ class LLMProviderRateLimiter:
         increment: int = 1
     ) -> None:
         """Add to sliding window counter."""
+        redis = await self._get_redis()
+        if not redis:
+            return
+            
         # Add current usage
-        await self.redis.zadd(key, {f"{now}:{increment}": now})
+        await redis.zadd(key, {f"{now}:{increment}": now})
         
         # Set expiry
-        await self.redis.expire(key, window_seconds + 60)
+        await redis.expire(key, window_seconds + 60)
     
     async def get_llm_usage_stats(
         self,

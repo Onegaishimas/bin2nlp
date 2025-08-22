@@ -185,15 +185,62 @@ async def revoke_api_key(
                 detail="API key not found"
             )
         
-        # Note: This is a simplified approach. In production, you'd want to store
-        # a revocation list or flag rather than trying to reconstruct the key.
-        # For now, we'll mark it as revoked in Redis.
-        redis = get_redis_client()
-        await redis.hset(f"revoked_keys:{key_id}", "revoked_at", datetime.now().isoformat())
+        # Use a more direct approach: remove from user's key set and remove key data
+        redis = await get_redis_client()
+        logger.info(f"Starting deletion process for key_id: {key_id}, user_id: {user_id}")
+        
+        try:
+            # Remove from user's key set first
+            removed_count = await redis.srem(f"user_keys:{user_id}", key_id)
+            logger.info(f"Removed {removed_count} keys from user_keys:{user_id}")
+            
+            # Find and remove the actual key data by scanning for this key_id
+            # Get all api_key keys and check each one
+            all_keys = []
+            cursor = 0
+            while True:
+                cursor, keys = await redis.scan(cursor=cursor, match="api_key:*")
+                # Decode keys if they're bytes
+                decoded_keys = [api_key_manager._decode_redis_value(k) for k in keys]
+                all_keys.extend(decoded_keys)
+                if cursor == 0:
+                    break
+            
+            logger.info(f"Found {len(all_keys)} API keys to check for key_id: {key_id}")
+            
+            # Check each key for our target key_id
+            found_and_deleted = False
+            for i, key_name in enumerate(all_keys):
+                try:
+                    key_data = await redis.hgetall(key_name)
+                    if not key_data:
+                        logger.debug(f"Key {i}: {key_name} - no data")
+                        continue
+                    decoded_key_data = {
+                        api_key_manager._decode_redis_value(k): api_key_manager._decode_redis_value(v)
+                        for k, v in key_data.items()
+                    }
+                    current_key_id = decoded_key_data.get("key_id")
+                    logger.debug(f"Key {i}: {key_name} - key_id: {current_key_id}")
+                    
+                    if current_key_id == key_id:
+                        delete_result = await redis.delete(key_name)
+                        logger.info(f"Successfully deleted Redis key: {key_name} (result: {delete_result})")
+                        found_and_deleted = True
+                        break
+                except Exception as e:
+                    logger.error(f"Error processing key {key_name}: {e}")
+            
+            if not found_and_deleted:
+                logger.warning(f"Could not find Redis key to delete for key_id: {key_id}")
+            
+        except Exception as e:
+            logger.error(f"Error during key deletion: {e}")
+            raise
         
         logger.info(
-            f"API key revoked by admin {current_user['user_id']}: "
-            f"user={user_id}, key_id={key_id}"
+            f"API key deletion completed by admin {current_user['user_id']}: "
+            f"user={user_id}, key_id={key_id}, success={found_and_deleted}"
         )
         
         return {"success": True}
@@ -220,7 +267,7 @@ async def get_system_stats(
     Requires admin permission.
     """
     try:
-        redis = get_redis_client()
+        redis = await get_redis_client()
         
         # Redis statistics
         redis_info = await redis.info()
@@ -290,7 +337,7 @@ async def get_user_rate_limits(
         llm_stats = await llm_rate_limiter.get_llm_usage_stats(user_id)
         
         # Get general rate limit info from Redis
-        redis = get_redis_client()
+        redis = await get_redis_client()
         user_rate_limits = {}
         
         # Scan for user's rate limit keys
@@ -1049,4 +1096,59 @@ async def get_health_summary(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate health summary"
+        )
+
+
+# Bootstrap endpoint for initial setup
+@router.post("/bootstrap/create-admin")
+async def bootstrap_create_admin():
+    """
+    Bootstrap endpoint to create the first admin user.
+    
+    Only works when no admin-tier API keys exist in the system.
+    This provides a secure way to create the initial admin user.
+    """
+    try:
+        # Check if admin keys already exist
+        redis = await get_redis_client()
+        admin_keys = await redis.keys("api_key:*")
+        
+        # Check if any existing keys have admin permissions
+        for key_pattern in admin_keys:
+            key_data = await redis.hgetall(key_pattern)
+            if key_data and "admin" in key_data.get("permissions", ""):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Admin users already exist. Use existing admin credentials to create additional users."
+                )
+        
+        # Create bootstrap admin key
+        api_key_manager = APIKeyManager()
+        api_key, key_id = await api_key_manager.create_api_key(
+            user_id="bootstrap_admin",
+            tier="enterprise",
+            permissions=["read", "write", "admin"]
+        )
+        
+        logger.warning("Bootstrap admin API key created - this should only happen during initial setup")
+        
+        return {
+            "success": True,
+            "message": "Bootstrap admin user created successfully",
+            "api_key": api_key,
+            "key_id": key_id,
+            "user_id": "bootstrap_admin",
+            "tier": "enterprise",
+            "permissions": ["read", "write", "admin"],
+            "warning": "This is a one-time bootstrap operation. Save the API key securely!",
+            "usage": f'Use this key in the Authorization header: Bearer {api_key}'
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create bootstrap admin: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create bootstrap admin: {str(e)}"
         )

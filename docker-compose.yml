@@ -14,47 +14,15 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Application settings
-      - APP_ENV=production
+      - ENVIRONMENT=production
       - DEBUG=false
       - WORKERS=4
-      
-      # Database/Cache
+      - SECURITY_REQUIRE_API_KEYS=false
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_DB=0
-      
-      # API Configuration
       - API_HOST=0.0.0.0
       - API_PORT=8000
-      - API_CORS_ORIGINS=["http://localhost:3000", "https://yourdomain.com"]
-      
-      # Security
-      - API_KEY_PREFIX=ak_
-      - API_KEY_EXPIRY_DAYS=365
-      - ENFORCE_HTTPS=false
-      
-      # File Processing
-      - MAX_FILE_SIZE_MB=100
-      - UPLOAD_TIMEOUT_SECONDS=300
-      - MAX_TIMEOUT_SECONDS=1800
-      
-      # LLM Provider Settings (set your API keys)
-      - LLM_ENABLED_PROVIDERS=["openai", "anthropic", "gemini"]
-      - LLM_DEFAULT_PROVIDER=openai
-      - LLM_REQUESTS_PER_MINUTE=60
-      - LLM_TOKENS_PER_MINUTE=90000
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      
-      # Rate Limiting
-      - DEFAULT_RATE_LIMIT_PER_MINUTE=100
-      - DEFAULT_RATE_LIMIT_PER_DAY=10000
-      
-      # Logging
-      - LOG_LEVEL=INFO
-      - LOG_FORMAT=json
       
     volumes:
       # Persistent storage for temporary files and logs
@@ -116,35 +84,8 @@ services:
           cpus: '0.1'
           memory: 128M
 
-  # Background worker for async processing (optional)
-  worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: production
-    container_name: bin2nlp-worker
-    environment:
-      - APP_ENV=production
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - WORKER_CONCURRENCY=2
-    command: python -m src.workers.decompilation_worker
-    volumes:
-      - api_uploads:/tmp/uploads
-      - api_logs:/var/log/app
-    depends_on:
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-    
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 4G
-        reservations:
-          cpus: '0.5'
-          memory: 1G
+  # Background processing is handled by FastAPI BackgroundTasks within the API container
+  # No separate worker container needed for current implementation
 
 # Named volumes for persistent data
 volumes:
