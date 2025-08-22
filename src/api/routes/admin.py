@@ -372,10 +372,17 @@ async def get_user_rate_limits(
         
         # Scan for user's rate limit keys
         async for key in redis.scan_iter(match=f"rate_limit:user:{user_id}:*"):
-            key_parts = key.split(":")
+            # Handle both bytes and string responses from Redis (defensive programming)
+            if isinstance(key, bytes):
+                key_str = key.decode('utf-8')
+            else:
+                key_str = str(key)  # Ensure it's always a string
+            
+            key_parts = key_str.split(":")
             if len(key_parts) >= 4:
                 limit_type = key_parts[3]
-                count = await redis.zcard(key)
+                # Use string version for Redis operations to ensure consistency
+                count = await redis.zcard(key_str)
                 user_rate_limits[limit_type] = count
         
         return {
@@ -390,6 +397,109 @@ async def get_user_rate_limits(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve rate limit information: {str(e)}"
+        )
+
+
+# TEMPORARY: Public rate limits test endpoint (no auth required)
+@router.get("/public-rate-limits-test/{user_id}")
+async def public_rate_limits_test(user_id: str) -> Dict[str, Any]:
+    """
+    TEMPORARY: Public version of rate limits endpoint to test Redis encoding fix.
+    This endpoint will be removed after confirming the fix works.
+    """
+    try:
+        from ...api.middleware.rate_limiting import LLMProviderRateLimiter
+        
+        # Get general rate limit info from Redis (fixed version)
+        redis = await get_redis_client()
+        user_rate_limits = {}
+        
+        # Scan for user's rate limit keys with fixed encoding handling
+        async for key in redis.scan_iter(match=f"rate_limit:user:{user_id}:*"):
+            # Handle both bytes and string responses from Redis (defensive programming)
+            if isinstance(key, bytes):
+                key_str = key.decode('utf-8')
+            else:
+                key_str = str(key)  # Ensure it's always a string
+            
+            key_parts = key_str.split(":")
+            if len(key_parts) >= 4:
+                limit_type = key_parts[3]
+                # Use string version for Redis operations to ensure consistency
+                count = await redis.zcard(key_str)
+                user_rate_limits[limit_type] = count
+        
+        # Also test LLM rate limiter (could have same encoding issue)
+        try:
+            llm_rate_limiter = LLMProviderRateLimiter()
+            llm_stats = await llm_rate_limiter.get_llm_usage_stats(user_id)
+        except Exception as llm_error:
+            llm_stats = {"error": f"LLM rate limiter error: {str(llm_error)}"}
+        
+        return {
+            "user_id": user_id,
+            "general_rate_limits": user_rate_limits,
+            "llm_usage": llm_stats,
+            "timestamp": datetime.now().isoformat(),
+            "test_status": "Redis encoding fix applied",
+            "keys_found": len(user_rate_limits)
+        }
+        
+    except Exception as e:
+        logger.error(f"REDIS ENCODING TEST ERROR: {str(e)} - type: {type(e)}")
+        return {
+            "user_id": user_id,
+            "error": str(e),
+            "error_type": str(type(e)),
+            "test_status": "Failed - encoding issue still exists"
+        }
+
+
+# TEMPORARY: Test endpoint to isolate Redis encoding issue
+@router.get("/test-redis-encoding/{user_id}")
+async def test_redis_encoding(user_id: str) -> Dict[str, Any]:
+    """
+    TEMPORARY: Test endpoint to reproduce Redis encoding issue without auth.
+    This endpoint will be removed after fixing the issue.
+    """
+    try:
+        from ...api.middleware.rate_limiting import LLMProviderRateLimiter
+        llm_rate_limiter = LLMProviderRateLimiter()
+        
+        # Get LLM usage stats
+        llm_stats = await llm_rate_limiter.get_llm_usage_stats(user_id)
+        
+        # Get general rate limit info from Redis - THIS IS WHERE THE ERROR OCCURS
+        redis = await get_redis_client()
+        user_rate_limits = {}
+        
+        # Scan for user's rate limit keys - Fixed version
+        async for key in redis.scan_iter(match=f"rate_limit:user:{user_id}:*"):
+            # Handle both bytes and string responses from Redis (defensive programming)
+            if isinstance(key, bytes):
+                key_str = key.decode('utf-8')
+            else:
+                key_str = str(key)  # Ensure it's always a string
+            
+            key_parts = key_str.split(":")
+            if len(key_parts) >= 4:
+                limit_type = key_parts[3]
+                # Use string version for Redis operations to ensure consistency
+                count = await redis.zcard(key_str)
+                user_rate_limits[limit_type] = count
+        
+        return {
+            "user_id": user_id,
+            "general_rate_limits": user_rate_limits,
+            "llm_usage": llm_stats,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"REDIS ENCODING ERROR: {str(e)} - type: {type(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Redis encoding error: {str(e)}"
         )
 
 

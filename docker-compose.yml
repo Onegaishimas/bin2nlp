@@ -17,7 +17,7 @@ services:
       - ENVIRONMENT=production
       - DEBUG=false
       - WORKERS=4
-      - SECURITY_REQUIRE_API_KEYS=false
+      - SECURITY_REQUIRE_API_KEYS=true
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_DB=0
