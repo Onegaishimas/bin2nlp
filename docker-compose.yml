@@ -23,6 +23,7 @@ services:
       # Container-specific overrides for production deployment
       - REDIS_HOST=redis  # Override .env value to use Docker service name
       - ENVIRONMENT=production  # Ensure production mode regardless of .env
+      - SECURITY_REQUIRE_API_KEYS=false  # Disable authentication in production
       
     volumes:
       # Persistent storage for temporary files and logs

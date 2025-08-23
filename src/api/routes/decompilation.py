@@ -25,6 +25,7 @@ from ...decompilation.engine import DecompilationEngine
 from ...cache.job_queue import JobQueue, JobMetadata
 from ...models.shared.enums import JobStatus
 from ...core.logging import get_logger
+from ...llm.translation_service import get_translation_service
 
 
 logger = get_logger(__name__)
@@ -83,9 +84,54 @@ async def process_decompilation_job(job_id: str, file_path: str, analysis_config
         # Update progress
         await job_queue.update_job_progress(
             job_id=job_id,
-            progress_percentage=90.0,
-            current_stage="Decompilation complete"
+            progress_percentage=70.0,
+            current_stage="Decompilation complete, starting LLM translation"
         )
+        
+        # Perform LLM translation if LLM provider is configured
+        if analysis_config.get("llm_provider"):
+            logger.info(f"LLM provider found: {analysis_config.get('llm_provider')} for job {job_id}")
+            logger.info(f"Functions available for translation: {len(result.functions)} functions")
+            try:
+                logger.info(f"Starting LLM translation for job {job_id}")
+                translation_service = await get_translation_service()
+                
+                # Create LLM config from analysis parameters
+                llm_config = {
+                    "llm_provider": analysis_config.get("llm_provider"),
+                    "llm_model": analysis_config.get("llm_model"),
+                    "llm_endpoint_url": analysis_config.get("llm_endpoint_url"),
+                    "llm_api_key": analysis_config.get("llm_api_key"),
+                    "translation_detail": analysis_config.get("translation_detail", "standard"),
+                    "analysis_depth": analysis_config.get("analysis_depth", "standard")
+                }
+                
+                # Translate the decompilation result
+                result = await translation_service.translate_decompilation_result(
+                    decompilation_result=result,
+                    llm_config=llm_config,
+                    context={"job_id": job_id}
+                )
+                
+                # Update progress after LLM translation
+                await job_queue.update_job_progress(
+                    job_id=job_id,
+                    progress_percentage=90.0,
+                    current_stage="LLM translation complete"
+                )
+                logger.info(f"Completed LLM translation for job {job_id}")
+                
+            except Exception as e:
+                logger.warning(f"LLM translation failed for job {job_id}: {e}")
+                # Continue with original result - translation failure is not critical
+                await job_queue.update_job_progress(
+                    job_id=job_id,
+                    progress_percentage=90.0,
+                    current_stage="LLM translation failed, proceeding with decompilation results"
+                )
+        else:
+            logger.info(f"No LLM provider configured for job {job_id}, skipping translation")
+            logger.info(f"Analysis config keys: {list(analysis_config.keys())}")
         
         # Store result (for now, we'll store in job metadata)
         # In production, you might store large results in object storage
@@ -97,6 +143,10 @@ async def process_decompilation_job(job_id: str, file_path: str, analysis_config
             "duration_seconds": result.duration_seconds,
             "decompilation_id": result.decompilation_id
         }
+        
+        # Include LLM translation metadata if available
+        if result.metadata and "llm_translations" in result.metadata:
+            result_summary["llm_translations"] = result.metadata["llm_translations"]
         
         # Complete the job
         await job_queue.complete_job(job_id, "background-worker")

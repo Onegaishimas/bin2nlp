@@ -392,7 +392,13 @@ class DecompilationEngine:
             # Get function list using R2Session method
             func_data = await r2.extract_functions(self.config.r2_analysis_level)
             
+            # DEBUG: Log what we got from R2Session
+            logger.info(f"ENGINE DEBUG: Got {len(func_data) if func_data else 0} raw functions from R2Session")
+            if func_data and len(func_data) > 0:
+                logger.info(f"ENGINE DEBUG: First function sample: {func_data[0]}")
+            
             if not func_data:
+                logger.info("ENGINE DEBUG: No func_data returned from R2Session - returning empty")
                 return functions
             
             # Limit number of functions if specified
@@ -410,7 +416,9 @@ class DecompilationEngine:
                     assembly_code = None
                     if self.config.include_assembly_code and size > 0:
                         try:
-                            assembly_code = await r2.get_function_assembly(address)
+                            assembly_dict = await r2.get_function_assembly(address)
+                            # Extract the assembly string from the dictionary
+                            assembly_code = assembly_dict.get("assembly", "") if assembly_dict else None
                         except Exception:
                             pass  # Skip assembly if it fails
                     
@@ -431,8 +439,11 @@ class DecompilationEngine:
                     functions.append(function_info)
                     
                 except Exception as e:
-                    logger.debug("function_extraction_error", func=func, error=str(e))
+                    logger.warning(f"ENGINE DEBUG: Function processing error - {str(e)} for func: {func}")
                     continue
+            
+            # DEBUG: Log final result
+            logger.info(f"ENGINE DEBUG: Processed {len(functions)} functions successfully out of {len(func_data)} raw functions")
             
         except Exception as e:
             logger.warning("functions_extraction_failed", error=str(e))

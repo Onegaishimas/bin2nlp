@@ -187,15 +187,14 @@ class OpenAIProvider(LLMProvider):
             OperationType.LLM_REQUEST,
             f"openai_function_translation",
             provider="openai",
-            model=self.config.model_name,
-            operation_type="function_translation",
+            model=self.config.default_model,
             function_name=function_data.get('name', 'unknown')
         ):
             # Increment attempt counter
             increment_counter("llm_requests", 1, 
                             provider="openai", 
                             operation="function_translation",
-                            model=self.config.model_name)
+                            model=self.config.default_model)
             
             try:
                 # Call with circuit breaker protection
@@ -211,7 +210,7 @@ class OpenAIProvider(LLMProvider):
                 increment_counter("llm_failures", 1,
                                 provider="openai",
                                 operation="function_translation",
-                                model=self.config.model_name,
+                                model=self.config.default_model,
                                 error_type=e.__class__.__name__)
                 raise
     
@@ -289,7 +288,7 @@ Provide a comprehensive explanation in 2-4 paragraphs that explains what this fu
             increment_counter("llm_success", 1,
                         provider="openai",
                         operation="function_translation", 
-                        model=self.config.model_name)
+                        model=self.config.default_model)
         
             return FunctionTranslation(
             function_name=function_data.get('name', 'unknown'),
@@ -310,7 +309,7 @@ Provide a comprehensive explanation in 2-4 paragraphs that explains what this fu
             increment_counter("llm_failures", 1,
                             provider="openai",
                             operation="function_translation",
-                            model=self.config.model_name,
+                            model=self.config.default_model,
                             error_type=e.__class__.__name__)
             raise
     
@@ -329,7 +328,7 @@ Provide a comprehensive explanation in 2-4 paragraphs that explains what this fu
             OperationType.LLM_REQUEST,
             "openai_import_explanation",
             provider="openai",
-            model=self.config.model_name,
+            model=self.config.default_model,
             operation_type="import_explanation",
             import_count=len(import_list)
         ):
@@ -337,7 +336,7 @@ Provide a comprehensive explanation in 2-4 paragraphs that explains what this fu
             increment_counter("llm_requests", 1, 
                             provider="openai", 
                             operation="import_explanation",
-                            model=self.config.model_name)
+                            model=self.config.default_model)
             
             try:
                 # Call with circuit breaker protection
@@ -353,7 +352,7 @@ Provide a comprehensive explanation in 2-4 paragraphs that explains what this fu
                 increment_counter("llm_failures", 1,
                                 provider="openai",
                                 operation="import_explanation",
-                                model=self.config.model_name,
+                                model=self.config.default_model,
                                 error_type=e.__class__.__name__)
                 raise
 
@@ -422,7 +421,7 @@ For each import, provide:
             increment_counter("llm_success", 1,
                         provider="openai",
                         operation="import_explanation",
-                        model=self.config.model_name)
+                        model=self.config.default_model)
         
             return translations
         
@@ -431,7 +430,7 @@ For each import, provide:
             increment_counter("llm_failures", 1,
                             provider="openai",
                             operation="import_explanation",
-                            model=self.config.model_name,
+                            model=self.config.default_model,
                             error_type=e.__class__.__name__)
             raise
     
@@ -450,7 +449,7 @@ For each import, provide:
             OperationType.LLM_REQUEST,
             "openai_string_interpretation",
             provider="openai",
-            model=self.config.model_name,
+            model=self.config.default_model,
             operation_type="string_interpretation",
             string_count=len(string_list)
         ):
@@ -458,7 +457,7 @@ For each import, provide:
             increment_counter("llm_requests", 1, 
                             provider="openai", 
                             operation="string_interpretation",
-                            model=self.config.model_name)
+                            model=self.config.default_model)
             
             try:
                 # Call with circuit breaker protection
@@ -474,7 +473,7 @@ For each import, provide:
                 increment_counter("llm_failures", 1,
                                 provider="openai",
                                 operation="string_interpretation",
-                                model=self.config.model_name,
+                                model=self.config.default_model,
                                 error_type=e.__class__.__name__)
                 raise
 
@@ -545,7 +544,7 @@ For each string, analyze:
             increment_counter("llm_success", 1,
                         provider="openai",
                         operation="string_interpretation",
-                        model=self.config.model_name)
+                        model=self.config.default_model)
         
             return translations
         
@@ -554,7 +553,7 @@ For each string, analyze:
             increment_counter("llm_failures", 1,
                             provider="openai",
                             operation="string_interpretation",
-                            model=self.config.model_name,
+                            model=self.config.default_model,
                             error_type=e.__class__.__name__)
             raise
     
@@ -570,14 +569,14 @@ For each string, analyze:
             OperationType.LLM_REQUEST,
             "openai_overall_summary",
             provider="openai",
-            model=self.config.model_name,
+            model=self.config.default_model,
             operation_type="overall_summary"
         ):
             # Increment attempt counter
             increment_counter("llm_requests", 1, 
                             provider="openai", 
                             operation="overall_summary",
-                            model=self.config.model_name)
+                            model=self.config.default_model)
             
             try:
                 # Call with circuit breaker protection
@@ -593,7 +592,7 @@ For each string, analyze:
                 increment_counter("llm_failures", 1,
                                 provider="openai",
                                 operation="overall_summary",
-                                model=self.config.model_name,
+                                model=self.config.default_model,
                                 error_type=e.__class__.__name__)
                 raise
 
@@ -660,7 +659,7 @@ Provide a comprehensive analysis covering all aspects of this program."""
             increment_counter("llm_success", 1,
                         provider="openai",
                         operation="overall_summary",
-                        model=self.config.model_name)
+                        model=self.config.default_model)
         
             return OverallSummary(
             program_purpose=summary_data.get('purpose', 'Purpose not determined'),
@@ -680,7 +679,7 @@ Provide a comprehensive analysis covering all aspects of this program."""
             increment_counter("llm_failures", 1,
                             provider="openai",
                             operation="overall_summary",
-                            model=self.config.model_name,
+                            model=self.config.default_model,
                             error_type=e.__class__.__name__)
             raise
     

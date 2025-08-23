@@ -518,7 +518,9 @@ class R2Session:
         if not result.success:
             raise R2SessionException(f"Failed to extract functions: {result.error_message}")
         
-        return result.output or []
+        functions = result.output or []
+        self.logger.info(f"DEBUG: extracted {len(functions)} functions from radare2")
+        return functions
     
     async def get_strings(self, min_length: int = 4) -> List[Dict[str, Any]]:
         """Get strings from the binary (simplified version)."""
