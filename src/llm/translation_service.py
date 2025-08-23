@@ -46,16 +46,29 @@ class TranslationServiceOrchestrator:
         
         # Import settings to get environment variables
         from ..core.config import get_settings
-        settings = get_settings()
+        import os
         
         # Initialize providers based on available configurations
         # Check if OpenAI/Ollama configuration is available
         provider_requested = llm_config and llm_config.get("llm_provider") == "openai"
         
-        # Check for OpenAI config in LLM settings
-        llm_openai_key = settings.llm.openai_api_key.get_secret_value() if settings.llm.openai_api_key else None
-        llm_openai_url = settings.llm.openai_base_url
-        llm_openai_model = settings.llm.openai_default_model
+        # Try to get settings, but fall back to environment variables if settings fail
+        llm_openai_key = None
+        llm_openai_url = None
+        llm_openai_model = None
+        
+        try:
+            settings = get_settings()
+            llm_openai_key = settings.llm.openai_api_key.get_secret_value() if settings.llm.openai_api_key else None
+            llm_openai_url = settings.llm.openai_base_url
+            llm_openai_model = settings.llm.openai_default_model
+            logger.info("Successfully loaded LLM settings from configuration system")
+        except Exception as e:
+            logger.warning(f"Failed to load LLM settings, falling back to environment variables: {e}")
+            llm_openai_key = os.getenv("LLM_OPENAI_API_KEY")
+            llm_openai_url = os.getenv("LLM_OPENAI_BASE_URL") 
+            llm_openai_model = os.getenv("LLM_OPENAI_DEFAULT_MODEL")
+            logger.info("Using direct environment variable access as fallback")
         
         env_has_openai_config = bool(llm_openai_key) and bool(llm_openai_url)
         
@@ -153,7 +166,13 @@ class TranslationServiceOrchestrator:
                             "address": func.address,
                             "size": func.size,
                             "assembly_code": func.assembly_code,
-                            "pseudocode": func.pseudocode
+                            "pseudocode": getattr(func, 'pseudocode', None),
+                            "decompiled_code": getattr(func, 'decompiled_code', None),
+                            "calls_to": getattr(func, 'calls_to', []),
+                            "calls_from": getattr(func, 'calls_from', []),
+                            "variables": getattr(func, 'variables', []),
+                            "imports_used": getattr(func, 'imports_used', []),
+                            "strings_referenced": getattr(func, 'strings_referenced', [])
                         }
                         
                         translation = await provider.translate_function(
@@ -206,9 +225,9 @@ class TranslationServiceOrchestrator:
         """Prepare context information for LLM translation."""
         translation_context = {
             "binary_info": {
-                "format": decompilation_result.binary_format,
-                "architecture": decompilation_result.architecture,
-                "file_size": decompilation_result.file_size_bytes
+                "format": getattr(decompilation_result, 'binary_format', 'Unknown'),
+                "architecture": getattr(decompilation_result, 'architecture', 'Unknown'), 
+                "file_size": getattr(decompilation_result, 'file_size_bytes', 0)
             },
             "analysis_summary": {
                 "function_count": len(decompilation_result.functions),

@@ -153,10 +153,11 @@ async def process_decompilation_job(job_id: str, file_path: str, analysis_config
         
         # Store results in cache for retrieval
         from ...cache.base import get_redis_client
+        import json
         redis = await get_redis_client()
         await redis.set(
             f"result:{job_id}",
-            str(result_summary),  # In production, use proper serialization
+            json.dumps(result_summary),  # Use proper JSON serialization
             ttl=3600  # 1 hour TTL
         )
         
@@ -168,6 +169,7 @@ async def process_decompilation_job(job_id: str, file_path: str, analysis_config
     finally:
         # Clean up temporary file
         try:
+            import os
             if os.path.exists(file_path):
                 os.unlink(file_path)
         except Exception as e:
@@ -319,15 +321,28 @@ async def get_decompilation_result(
             from ...cache.base import get_redis_client
             redis = await get_redis_client()
             result_data = await redis.get(f"result:{job_id}")
-            
+        except Exception as e:
+            logger.error(f"Failed to retrieve result data from Redis for job {job_id}: {e}")
+            response["message"] = "Decompilation completed but results retrieval failed"
+        else:
+            # Parse the result data (handle both JSON and Python string formats)
             if result_data:
-                response["results"] = result_data
-                response["message"] = "Decompilation completed successfully"
+                import json
+                try:
+                    # Try JSON parsing first (new format)
+                    response["results"] = json.loads(result_data)
+                    response["message"] = "Decompilation completed successfully"
+                except json.JSONDecodeError:
+                    # Fall back to eval for old Python string format (backward compatibility)
+                    try:
+                        logger.info(f"JSON parsing failed for job {job_id}, attempting Python eval fallback")
+                        response["results"] = eval(result_data)  # Safe eval of dict string
+                        response["message"] = "Decompilation completed successfully"
+                    except (SyntaxError, ValueError, NameError) as e:
+                        logger.error(f"Failed to parse result data for job {job_id} with both JSON and eval: {e}")
+                        response["message"] = "Decompilation completed but results parsing failed"
             else:
                 response["message"] = "Decompilation completed but results not found"
-        except Exception as e:
-            logger.error(f"Failed to retrieve results for job {job_id}: {e}")
-            response["message"] = "Decompilation completed but results retrieval failed"
     elif "failed" in status_str:
         response["message"] = f"Decompilation failed: {progress.error_message or 'Unknown error'}"
     elif "processing" in status_str:

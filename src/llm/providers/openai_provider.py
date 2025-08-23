@@ -237,25 +237,53 @@ Focus on:
 Provide your analysis in a structured format with clear explanations."""
 
             # Build user prompt with function data
-            user_prompt = f"""Please translate this decompiled function into a natural language explanation:
+            # Determine the best available code representation
+            pseudocode = function_data.get('pseudocode')
+            decompiled_code = function_data.get('decompiled_code')
+            assembly_code = function_data.get('assembly_code', '')
+            
+            # Prioritize pseudocode, then decompiled_code, then assembly_code
+            code_section = ""
+            if pseudocode:
+                code_section = f"""**Pseudocode:**
+```c
+{pseudocode}
+```
+
+**Assembly Code:**
+```assembly
+{assembly_code}
+```"""
+            elif decompiled_code:
+                code_section = f"""**Decompiled Code:**
+```c
+{decompiled_code}
+```
+
+**Assembly Code:**
+```assembly
+{assembly_code}
+```"""
+            else:
+                code_section = f"""**Assembly Code:**
+```assembly
+{assembly_code}
+```"""
+
+            user_prompt = f"""Please translate this binary function into a natural language explanation:
 
 **Function Information:**
 - Name: {function_data.get('name', 'unknown')}
 - Address: {function_data.get('address', 'unknown')}
 - Size: {function_data.get('size', 0)} bytes
 
-**Assembly Code:**
-```assembly
-{function_data.get('assembly_code', 'Not available')}
-```
-
-**Decompiled Code:**
-```c
-{function_data.get('decompiled_code', 'Not available')}
-```
+{code_section}
 
 **Function Calls:** {', '.join(function_data.get('calls_to', []))}
+**Called By:** {', '.join(function_data.get('calls_from', []))}
 **Variables:** {', '.join(function_data.get('variables', []))}
+**External APIs Used:** {', '.join(function_data.get('imports_used', []))}
+**String References:** {', '.join(function_data.get('strings_referenced', [])[:5])}  
 
 **Context Information:**
 {json.dumps(context or {}, indent=2)}
