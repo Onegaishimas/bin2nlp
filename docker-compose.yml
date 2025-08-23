@@ -1,5 +1,9 @@
 # Docker Compose for bin2nlp Production Deployment
 # Deploys API service with Redis cache and monitoring
+# 
+# Environment Configuration:
+# - Uses .env file for most configuration values
+# - Overrides specific values for container networking and production safety
 
 version: '3.8'
 
@@ -13,16 +17,12 @@ services:
     container_name: bin2nlp-api
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
-      - ENVIRONMENT=production
-      - DEBUG=false
-      - WORKERS=4
-      - SECURITY_REQUIRE_API_KEYS=true
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_DB=0
-      - API_HOST=0.0.0.0
-      - API_PORT=8000
+      # Container-specific overrides for production deployment
+      - REDIS_HOST=redis  # Override .env value to use Docker service name
+      - ENVIRONMENT=production  # Ensure production mode regardless of .env
       
     volumes:
       # Persistent storage for temporary files and logs
