@@ -46,11 +46,15 @@ async def bootstrap_admin(user_id: str = "admin") -> str:
     logger.info(f"Environment: {settings.environment}")
     
     try:
-        # Initialize Redis connection
-        from ..cache.base import get_redis_client
-        redis = await get_redis_client()
-        await redis.ping()
-        logger.info("✅ Redis connection established")
+        # Initialize Database connection
+        from ..database.connection import get_database, init_database
+        await init_database()
+        db = await get_database()
+        result = await db.fetch_one("SELECT 1 as test")
+        if result and result['test'] == 1:
+            logger.info("✅ Database connection established")
+        else:
+            raise Exception("Database connection test failed")
         
         # Create admin API key
         api_key = await create_admin_key(
@@ -81,8 +85,8 @@ async def bootstrap_admin(user_id: str = "admin") -> str:
         raise
     finally:
         try:
-            redis = await get_redis_client()
-            await redis.disconnect()
+            db = await get_database()
+            await db.disconnect()
         except:
             pass
 

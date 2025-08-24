@@ -22,7 +22,8 @@ from ...core.circuit_breaker import get_circuit_breaker_manager
 from ...core.dashboards import (
     get_alert_manager, get_dashboard_generator, run_alert_checks, generate_prometheus_metrics
 )
-from ...cache.base import get_redis_client
+from ...database.connection import get_database
+from ...database.operations import DatabaseOperations
 from ..middleware import (
     require_auth,
     require_permission,
@@ -82,7 +83,8 @@ class APIKeyCreateResponse(BaseModel):
 class SystemStatsResponse(BaseModel):
     """System statistics response."""
     
-    redis_stats: Dict[str, Any] = Field(..., description="Redis statistics")
+    database_stats: Dict[str, Any] = Field(..., description="Database statistics")
+    storage_stats: Dict[str, Any] = Field(..., description="Storage system statistics")
     rate_limit_stats: Dict[str, Any] = Field(..., description="Rate limiting statistics")
     api_key_stats: Dict[str, Any] = Field(..., description="API key statistics")
     system_health: Dict[str, Any] = Field(..., description="System health metrics")
@@ -215,63 +217,20 @@ async def revoke_api_key(
                 detail="API key not found"
             )
         
-        # Use a more direct approach: remove from user's key set and remove key data
-        redis = await get_redis_client()
-        logger.info(f"Starting deletion process for key_id: {key_id}, user_id: {user_id}")
+        # Use database operations to revoke the API key
+        success = await api_key_manager.revoke_api_key(user_id, key_id)
         
-        try:
-            # Remove from user's key set first
-            removed_count = await redis.srem(f"user_keys:{user_id}", key_id)
-            logger.info(f"Removed {removed_count} keys from user_keys:{user_id}")
-            
-            # Find and remove the actual key data by scanning for this key_id
-            # Get all api_key keys and check each one
-            all_keys = []
-            cursor = 0
-            while True:
-                cursor, keys = await redis.scan(cursor=cursor, match="api_key:*")
-                # Decode keys if they're bytes
-                decoded_keys = [api_key_manager._decode_redis_value(k) for k in keys]
-                all_keys.extend(decoded_keys)
-                if cursor == 0:
-                    break
-            
-            logger.info(f"Found {len(all_keys)} API keys to check for key_id: {key_id}")
-            
-            # Check each key for our target key_id
-            found_and_deleted = False
-            for i, key_name in enumerate(all_keys):
-                try:
-                    key_data = await redis.hgetall(key_name)
-                    if not key_data:
-                        logger.debug(f"Key {i}: {key_name} - no data")
-                        continue
-                    decoded_key_data = {
-                        api_key_manager._decode_redis_value(k): api_key_manager._decode_redis_value(v)
-                        for k, v in key_data.items()
-                    }
-                    current_key_id = decoded_key_data.get("key_id")
-                    logger.debug(f"Key {i}: {key_name} - key_id: {current_key_id}")
-                    
-                    if current_key_id == key_id:
-                        delete_result = await redis.delete(key_name)
-                        logger.info(f"Successfully deleted Redis key: {key_name} (result: {delete_result})")
-                        found_and_deleted = True
-                        break
-                except Exception as e:
-                    logger.error(f"Error processing key {key_name}: {e}")
-            
-            if not found_and_deleted:
-                logger.warning(f"Could not find Redis key to delete for key_id: {key_id}")
-            
-        except Exception as e:
-            logger.error(f"Error during key deletion: {e}")
-            raise
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="API key not found or already revoked"
+            )
         
         logger.info(
-            f"API key deletion completed by admin {current_user['user_id']}: "
-            f"user={user_id}, key_id={key_id}, success={found_and_deleted}"
+            f"API key revocation completed by admin {current_user['user_id']}: "
+            f"user={user_id}, key_id={key_id}"
         )
+        
         
         return {"success": True}
         
@@ -297,46 +256,83 @@ async def get_system_stats(
     Requires admin permission.
     """
     try:
-        redis = await get_redis_client()
+        db = await get_database()
+        db_ops = DatabaseOperations()
         
-        # Redis statistics
-        redis_info = await redis.info()
-        redis_stats = {
-            "connected_clients": redis_info.get("connected_clients", 0),
-            "used_memory_human": redis_info.get("used_memory_human", "0B"),
-            "keyspace_hits": redis_info.get("keyspace_hits", 0),
-            "keyspace_misses": redis_info.get("keyspace_misses", 0),
-            "total_commands_processed": redis_info.get("total_commands_processed", 0)
+        # Database statistics
+        db_stats_query = """
+            SELECT 
+                schemaname,
+                tablename,
+                n_tup_ins as inserts,
+                n_tup_upd as updates,
+                n_tup_del as deletes,
+                n_live_tup as live_tuples,
+                n_dead_tup as dead_tuples
+            FROM pg_stat_user_tables
+            ORDER BY schemaname, tablename;
+        """
+        
+        db_connection_info = await db.fetch_one("SELECT version() as version, current_database() as database")
+        db_stats_raw = await db.fetch_all(db_stats_query)
+        
+        database_stats = {
+            "version": db_connection_info["version"] if db_connection_info else "Unknown",
+            "database": db_connection_info["database"] if db_connection_info else "Unknown",
+            "tables": [{"schema": row["schemaname"], "table": row["tablename"], "live_tuples": row["live_tuples"]} for row in db_stats_raw],
+            "total_tables": len(db_stats_raw)
         }
         
-        # Rate limiting stats (sample)
+        # Storage statistics (file system)
+        import os
+        import shutil
+        storage_root = os.getenv("STORAGE_ROOT", "/app/storage")
+        if os.path.exists(storage_root):
+            total, used, free = shutil.disk_usage(storage_root)
+            storage_stats = {
+                "storage_root": storage_root,
+                "total_bytes": total,
+                "used_bytes": used,
+                "free_bytes": free,
+                "used_percentage": round(used / total * 100, 2) if total > 0 else 0
+            }
+        else:
+            storage_stats = {
+                "storage_root": storage_root,
+                "status": "not_available"
+            }
+        
+        # Rate limiting stats using PostgreSQL queries
+        rate_limit_count = await db.fetch_one(
+            "SELECT COUNT(*) as count FROM rate_limits WHERE expires_at > NOW()"
+        )
         rate_limit_stats = {
-            "active_rate_limits": await redis.eval(
-                "return #redis.call('keys', 'rate_limit:*')", 0
-            ),
-            "llm_rate_limits": await redis.eval(
-                "return #redis.call('keys', 'llm_rate:*')", 0
-            )
+            "active_rate_limits": rate_limit_count["count"] if rate_limit_count else 0,
+            "llm_rate_limits": await db.fetch_val(
+                "SELECT COUNT(*) FROM rate_limits WHERE identifier LIKE 'llm_rate:%' AND expires_at > NOW()"
+            ) or 0
         }
         
-        # API key stats
-        api_key_count = await redis.eval(
-            "return #redis.call('keys', 'api_key:*')", 0
+        # API key stats from PostgreSQL
+        api_key_count = await db.fetch_one(
+            "SELECT COUNT(*) as total, COUNT(CASE WHEN status = 'active' THEN 1 END) as active FROM api_keys"
         )
         api_key_stats = {
-            "total_keys": api_key_count,
-            "active_keys": api_key_count  # Simplified - would need more logic for accurate count
+            "total_keys": api_key_count["total"] if api_key_count else 0,
+            "active_keys": api_key_count["active"] if api_key_count else 0
         }
         
         # System health
         system_health = {
-            "redis_available": True,
+            "database_available": True,
+            "storage_available": os.path.exists(storage_root),
             "timestamp": datetime.now().isoformat(),
             "status": "healthy"
         }
         
         return SystemStatsResponse(
-            redis_stats=redis_stats,
+            database_stats=database_stats,
+            storage_stats=storage_stats,
             rate_limit_stats=rate_limit_stats,
             api_key_stats=api_key_stats,
             system_health=system_health
@@ -366,24 +362,30 @@ async def get_user_rate_limits(
         # Get LLM usage stats
         llm_stats = await llm_rate_limiter.get_llm_usage_stats(user_id)
         
-        # Get general rate limit info from Redis
-        redis = await get_redis_client()
-        user_rate_limits = {}
+        # Get general rate limit info from PostgreSQL
+        db = await get_database()
         
-        # Scan for user's rate limit keys
-        async for key in redis.scan_iter(match=f"rate_limit:user:{user_id}:*"):
-            # Handle both bytes and string responses from Redis (defensive programming)
-            if isinstance(key, bytes):
-                key_str = key.decode('utf-8')
-            else:
-                key_str = str(key)  # Ensure it's always a string
-            
-            key_parts = key_str.split(":")
-            if len(key_parts) >= 4:
-                limit_type = key_parts[3]
-                # Use string version for Redis operations to ensure consistency
-                count = await redis.zcard(key_str)
-                user_rate_limits[limit_type] = count
+        user_rate_limits_query = """
+            SELECT identifier, current_usage, max_limit, expires_at
+            FROM rate_limits 
+            WHERE identifier LIKE :pattern AND expires_at > NOW()
+        """
+        
+        rate_limit_rows = await db.fetch_all(
+            user_rate_limits_query, 
+            {"pattern": f"%user:{user_id}%"}
+        )
+        
+        user_rate_limits = {}
+        for row in rate_limit_rows:
+            identifier_parts = row["identifier"].split(":")
+            if len(identifier_parts) >= 3:
+                limit_type = identifier_parts[-1]  # Last part is the limit type
+                user_rate_limits[limit_type] = {
+                    "current": row["current_usage"],
+                    "limit": row["max_limit"],
+                    "expires_at": row["expires_at"].isoformat() if row["expires_at"] else None
+                }
         
         return {
             "user_id": user_id,
@@ -1146,18 +1148,17 @@ async def bootstrap_create_admin():
     This provides a secure way to create the initial admin user.
     """
     try:
-        # Check if admin keys already exist
-        redis = await get_redis_client()
-        admin_keys = await redis.keys("api_key:*")
+        # Check if admin keys already exist using PostgreSQL
+        db = await get_database()
+        admin_keys = await db.fetch_all(
+            "SELECT key_id FROM api_keys WHERE 'admin' = ANY(permissions) AND status = 'active'"
+        )
         
-        # Check if any existing keys have admin permissions
-        for key_pattern in admin_keys:
-            key_data = await redis.hgetall(key_pattern)
-            if key_data and "admin" in key_data.get("permissions", ""):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Admin users already exist. Use existing admin credentials to create additional users."
-                )
+        if admin_keys:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin users already exist. Use existing admin credentials to create additional users."
+            )
         
         # Create bootstrap admin key
         api_key_manager = APIKeyManager()
