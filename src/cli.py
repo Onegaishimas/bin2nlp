@@ -17,7 +17,8 @@ sys.path.insert(0, '.')
 
 from src.core.config import get_settings, validate_settings
 from src.api.middleware import APIKeyManager, create_dev_api_key
-from src.cache.base import get_redis_client
+from src.cache.base import get_file_storage_client
+from src.database.connection import get_database
 
 
 async def create_api_key(
@@ -97,16 +98,30 @@ async def check_system_health() -> None:
         print(f"❌ Configuration: Invalid - {e}")
         return
     
-    # Check Redis connection
+    # Check Database connection
     try:
-        redis = await get_redis_client()
-        await redis.ping()
-        info = await redis.info()
-        print("✅ Redis: Connected")
-        print(f"   Memory: {info.get('used_memory_human', 'unknown')}")
-        print(f"   Clients: {info.get('connected_clients', 0)}")
+        db = await get_database()
+        result = await db.fetch_one("SELECT 1 as test")
+        if result and result['test'] == 1:
+            print("✅ Database: Connected (PostgreSQL)")
+        else:
+            print("❌ Database: Query test failed")
     except Exception as e:
-        print(f"❌ Redis: Connection failed - {e}")
+        print(f"❌ Database: Connection failed - {e}")
+    
+    # Check File Storage
+    try:
+        storage = await get_file_storage_client()
+        is_healthy = await storage.health_check()
+        if is_healthy:
+            stats = storage.get_stats()
+            print("✅ Storage: Connected (File System)")
+            print(f"   Files: {stats['storage_stats']['file_count']}")
+            print(f"   Size: {stats['storage_stats']['total_size_bytes']} bytes")
+        else:
+            print("❌ Storage: Health check failed")
+    except Exception as e:
+        print(f"❌ Storage: Connection failed - {e}")
     
     # Check LLM providers
     try:
