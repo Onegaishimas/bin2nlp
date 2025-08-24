@@ -48,7 +48,7 @@ COMMANDS:
     restart         Restart services  
     logs            View logs
     shell           Open shell in API container
-    redis-cli       Open Redis CLI
+    db-cli          Open PostgreSQL CLI
     test            Run tests in container
     clean           Clean up Docker resources
     health          Check service health
@@ -59,7 +59,7 @@ EXAMPLES:
     $0 start                Start all services
     $0 logs api             Show API logs
     $0 shell                Open bash shell in API container
-    $0 redis-cli            Connect to Redis
+    $0 db-cli               Connect to PostgreSQL
     $0 test                 Run integration tests
     $0 clean                Clean up unused Docker resources
 
@@ -113,13 +113,13 @@ open_shell() {
     fi
 }
 
-# Open Redis CLI
-open_redis_cli() {
-    print_status "Opening Redis CLI..."
-    if $COMPOSE_CMD ps redis | grep -q "Up"; then
-        $COMPOSE_CMD exec redis redis-cli
+# Open PostgreSQL CLI
+open_db_cli() {
+    print_status "Opening PostgreSQL CLI..."
+    if $COMPOSE_CMD ps database | grep -q "Up"; then
+        $COMPOSE_CMD exec database psql -U bin2nlp -d bin2nlp
     else
-        print_error "Redis container is not running. Start it first with '$0 start'"
+        print_error "Database container is not running. Start it first with '$0 start'"
         exit 1
     fi
 }
@@ -147,11 +147,11 @@ check_health() {
         print_error "❌ API service is not healthy"
     fi
     
-    # Check Redis health
-    if $COMPOSE_CMD exec -T redis redis-cli ping | grep -q PONG 2>/dev/null; then
-        print_status "✅ Redis service is healthy"
+    # Check Database health
+    if $COMPOSE_CMD exec -T database pg_isready -U bin2nlp | grep -q "accepting connections" 2>/dev/null; then
+        print_status "✅ PostgreSQL database is healthy"
     else
-        print_error "❌ Redis service is not healthy"
+        print_error "❌ PostgreSQL database is not healthy"
     fi
     
     echo
@@ -226,8 +226,8 @@ case $COMMAND in
     shell)
         open_shell
         ;;
-    redis-cli)
-        open_redis_cli
+    db-cli)
+        open_db_cli
         ;;
     test)
         run_tests

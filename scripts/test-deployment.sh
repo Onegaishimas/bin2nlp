@@ -29,7 +29,7 @@ required_files=(
     "docker-compose.override.yml"
     ".dockerignore"
     ".env.template"
-    "config/redis.conf"
+    "config/postgres.conf"
     "config/nginx.conf"
     "scripts/deploy.sh"
     "scripts/docker-utils.sh"
@@ -49,7 +49,7 @@ done
 # Test 2: Directory Structure
 print_header "2. Directory Structure"
 
-required_dirs=("config" "data" "scripts" "data/redis" "data/uploads" "data/logs" "data/nginx")
+required_dirs=("config" "data" "scripts" "data/postgres" "data/uploads" "data/logs" "data/nginx" "data/storage")
 for dir in "${required_dirs[@]}"; do
     if [[ -d "$dir" ]]; then
         print_status "Directory exists: $dir/"
@@ -157,7 +157,7 @@ prod_checks=(
     "Resource limits in production config"
     "Security settings in environment"
     "Nginx configuration for SSL"
-    "Redis persistence configuration"
+    "PostgreSQL persistence configuration"
     "Log rotation setup"
 )
 
@@ -179,7 +179,7 @@ else
     print_warning "✓ ${prod_checks[2]} (commented for development)"
 fi
 
-if grep -q "appendonly.*yes" config/redis.conf; then
+if [ -f "config/postgres.conf" ] || [ -f "database/schema.sql" ]; then
     print_status "✓ ${prod_checks[3]}"
 else
     print_warning "✗ ${prod_checks[3]}"

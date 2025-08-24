@@ -139,7 +139,7 @@ print_status "Docker and Docker Compose are available"
 
 # Create required directories
 print_header "Setting Up Directories"
-mkdir -p data/{redis,uploads,logs,nginx}
+mkdir -p data/{postgres,uploads,logs,nginx,storage}
 chmod 755 data/uploads data/logs
 
 # Set up environment configuration
@@ -213,11 +213,11 @@ else
     exit 1
 fi
 
-# Check Redis health  
-if $COMPOSE_CMD $COMPOSE_FILES exec -T redis redis-cli ping | grep -q PONG; then
-    print_status "Redis service is healthy"
+# Check Database health
+if $COMPOSE_CMD $COMPOSE_FILES exec -T database pg_isready -U bin2nlp | grep -q "accepting connections"; then
+    print_status "PostgreSQL database is healthy"
 else
-    print_error "Redis service health check failed"
+    print_error "PostgreSQL database health check failed"
 fi
 
 # Display running services
@@ -233,7 +233,7 @@ if [[ "$ENVIRONMENT" == "development" ]]; then
     print_status "  API: http://localhost:8000"
     print_status "  Health: http://localhost:8000/api/v1/health" 
     print_status "  API Docs: http://localhost:8000/docs"
-    print_status "  Redis: localhost:6379"
+    print_status "  Database: localhost:5432 (PostgreSQL)"
     echo
     print_status "Useful commands:"
     print_status "  View logs: $COMPOSE_CMD $COMPOSE_FILES logs -f"
