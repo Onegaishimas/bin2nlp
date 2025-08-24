@@ -207,14 +207,24 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
                 tier=tier
             )
             
-            response.headers.update({
-                "X-RateLimit-Limit": str(primary_limit["max_requests"]),
-                "X-RateLimit-Remaining": str(
-                    max(0, primary_limit["max_requests"] - limit_stats["current"])
-                ),
-                "X-RateLimit-Reset": str(limit_stats["reset_at"]),
-                "X-RateLimit-Window": str(primary_limit["window_seconds"])
-            })
+            # Extract window stats for the primary limit's window
+            window_name = "minute"  # Default to minute window for headers
+            if "windows" in limit_stats and window_name in limit_stats["windows"]:
+                window_stats = limit_stats["windows"][window_name]
+                response.headers.update({
+                    "X-RateLimit-Limit": str(window_stats["limit"]),
+                    "X-RateLimit-Remaining": str(window_stats["remaining"]),
+                    "X-RateLimit-Reset": str(int(window_stats["reset_at"])),
+                    "X-RateLimit-Window": str(primary_limit["window_seconds"])
+                })
+            else:
+                # Fallback if rate limit status is empty
+                response.headers.update({
+                    "X-RateLimit-Limit": str(primary_limit["max_requests"]),
+                    "X-RateLimit-Remaining": str(primary_limit["max_requests"]),
+                    "X-RateLimit-Reset": str(int(time.time() + primary_limit["window_seconds"])),
+                    "X-RateLimit-Window": str(primary_limit["window_seconds"])
+                })
         
         return response
     

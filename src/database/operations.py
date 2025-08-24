@@ -68,7 +68,7 @@ class JobQueue:
         """
         try:
             # Validate priority
-            if priority not in [p.value for p in JobPriority]:
+            if priority not in [p for p in JobPriority]:
                 raise ProcessingException(f"Invalid priority: {priority}")
             
             # Create job instance
@@ -101,8 +101,8 @@ class JobQueue:
             
             await db.execute(query, {
                 'id': str(job.id),
-                'status': job.status.value,
-                'priority': job.priority.value,
+                'status': job.status,
+                'priority': job.priority,
                 'file_hash': job.file_hash,
                 'filename': job.filename,
                 'file_reference': job.file_reference,
@@ -122,7 +122,7 @@ class JobQueue:
                 "Job enqueued successfully",
                 extra={
                     "job_id": str(job.id),
-                    "priority": job.priority.value,
+                    "priority": job.priority,
                     "filename": filename,
                     "submitted_by": submitted_by
                 }

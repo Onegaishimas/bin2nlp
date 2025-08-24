@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 
 from ...core.logging import get_logger
 from ...core.dashboards import get_dashboard_generator, get_alert_manager
-from ..middleware import get_current_user, require_permission
+# Authentication middleware removed - open access dashboards
 
 
 logger = get_logger(__name__)
@@ -203,8 +203,6 @@ DASHBOARD_HTML_TEMPLATE = """
 @router.get("/", response_class=HTMLResponse)
 async def dashboard_home(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin", "read"])),
 ):
     """
     Main dashboard web interface.
@@ -266,8 +264,6 @@ async def dashboard_home(
 @router.get("/api", response_class=HTMLResponse) 
 async def api_explorer(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin", "read"])),
 ):
     """
     Simple API explorer page.
@@ -360,9 +356,9 @@ async def api_explorer(
         </div>
         
         <div style="margin-top: 40px; padding: 20px; background: #e9ecef; border-radius: 5px;">
-            <h3>🔐 Authentication Note</h3>
-            <p>Most endpoints require authentication. Use an API key in the <code>Authorization</code> header:</p>
-            <code>Authorization: Bearer your-api-key-here</code>
+            <h3>🔓 Open Access</h3>
+            <p>All endpoints are now freely accessible without authentication requirements.</p>
+            <p>This service provides open access to binary analysis and monitoring tools.</p>
         </div>
     </body>
     </html>

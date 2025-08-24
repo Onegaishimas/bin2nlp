@@ -1,21 +1,18 @@
 """
 Admin and Management API Endpoints
 
-Administrative functions including API key management,
-system monitoring, and configuration management.
+Administrative functions for system monitoring,
+metrics, and configuration management.
 
-These endpoints require elevated permissions.
+Note: All endpoints are now open access - no authentication required.
 """
-
 
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, status
 
 from ...core.logging import get_logger
-from pydantic import BaseModel, Field, field_validator
-
 from ...core.config import get_settings
 from ...core.metrics import get_metrics_collector, get_performance_summary, OperationType
 from ...core.circuit_breaker import get_circuit_breaker_manager
@@ -23,495 +20,21 @@ from ...core.dashboards import (
     get_alert_manager, get_dashboard_generator, run_alert_checks, generate_prometheus_metrics
 )
 from ...database.connection import get_database
-# DatabaseOperations not needed - using direct database connection
-from ..middleware import (
-    require_auth,
-    require_permission,
-    APIKeyManager,
-    LLMProviderRateLimiter,
-    get_current_user
-)
+# Rate limiting middleware removed - no longer needed
 
 logger = get_logger(__name__)
 
 # Create router
-router = APIRouter(prefix="/admin", tags=["admin"])
-
-# Pydantic models for API key management
-class CreateAPIKeyRequest(BaseModel):
-    """Request model for creating new API keys."""
-    
-    user_id: str = Field(..., min_length=1, max_length=100, description="User identifier")
-    tier: str = Field(default="basic", pattern="^(basic|standard|premium|enterprise)$", description="Access tier")
-    permissions: List[str] = Field(default=["read"], description="List of permissions")
-    expires_days: Optional[int] = Field(default=None, ge=1, le=3650, description="Key expiry in days")
-    description: Optional[str] = Field(default=None, max_length=255, description="Key description")
-    
-    @field_validator('permissions')
-    @classmethod
-    def validate_permissions(cls, v):
-        """Validate that permissions are from allowed list."""
-        valid_permissions = {"read", "write", "admin"}
-        for perm in v:
-            if perm not in valid_permissions:
-                raise ValueError(f"Invalid permission '{perm}'. Must be one of: {', '.join(sorted(valid_permissions))}")
-        return v
-
-
-class APIKeyInfo(BaseModel):
-    """API key information response."""
-    
-    key_id: str = Field(..., description="Key identifier")
-    user_id: str = Field(..., description="User identifier") 
-    tier: str = Field(..., description="Access tier")
-    permissions: List[str] = Field(..., description="Permissions list")
-    status: str = Field(..., description="Key status")
-    created_at: str = Field(..., description="Creation timestamp")
-    last_used_at: Optional[str] = Field(None, description="Last usage timestamp")
-    expires_at: Optional[str] = Field(None, description="Expiry timestamp")
-
-
-class APIKeyCreateResponse(BaseModel):
-    """Response for API key creation."""
-    
-    success: bool = Field(..., description="Operation success")
-    api_key: str = Field(..., description="Generated API key")
-    key_info: APIKeyInfo = Field(..., description="Key information")
-    warning: Optional[str] = Field(None, description="Security warnings")
-
-
-class SystemStatsResponse(BaseModel):
-    """System statistics response."""
-    
-    database_stats: Dict[str, Any] = Field(..., description="Database statistics")
-    storage_stats: Dict[str, Any] = Field(..., description="Storage system statistics")
-    rate_limit_stats: Dict[str, Any] = Field(..., description="Rate limiting statistics")
-    api_key_stats: Dict[str, Any] = Field(..., description="API key statistics")
-    system_health: Dict[str, Any] = Field(..., description="System health metrics")
-
-
-# API Key Management Endpoints
-
-@router.post("/api-keys", response_model=APIKeyCreateResponse)
-async def create_api_key(
-    request: CreateAPIKeyRequest,
-    current_user: dict = Depends(require_permission("admin"))
-) -> APIKeyCreateResponse:
-    """
-    Create a new API key.
-    
-    Requires admin permission. Creates API keys with specified
-    tier and permissions for the target user.
-    """
-    api_key_manager = APIKeyManager()
-    
-    try:
-        # Create the API key
-        api_key, key_id = await api_key_manager.create_api_key(
-            user_id=request.user_id,
-            tier=request.tier,
-            permissions=request.permissions,
-            expires_days=request.expires_days
-        )
-        
-        # Get the key info for response
-        key_info_list = await api_key_manager.list_user_keys(request.user_id)
-        key_info = next((k for k in key_info_list if k["key_id"] == key_id), None)
-        
-        if not key_info:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to retrieve created key information"
-            )
-        
-        # Security warning for high-tier keys
-        warning = None
-        if request.tier in ["premium", "enterprise"]:
-            warning = "High-tier API key created. Ensure secure storage and handling."
-        
-        logger.info(
-            f"API key created by admin {current_user['user_id']} "
-            f"for user {request.user_id}, tier: {request.tier}, key_id: {key_id}"
-        )
-        
-        return APIKeyCreateResponse(
-            success=True,
-            api_key=api_key,
-            key_info=APIKeyInfo(**key_info),
-            warning=warning
-        )
-        
-    except Exception as e:
-        logger.error(f"Failed to create API key: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create API key: {str(e)}"
-        )
-
-
-@router.get("/api-keys/{user_id}", response_model=List[APIKeyInfo])
-async def list_user_api_keys(
-    user_id: str,
-    current_user: dict = Depends(require_permission("admin"))
-) -> List[APIKeyInfo]:
-    """
-    List all API keys for a user.
-    
-    Requires admin permission.
-    """
-    # Prevent directory traversal attacks
-    if any(char in user_id for char in ['/', '\\', '.', ':', '<', '>', '|', '*', '?']):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid user_id format"
-        )
-    
-    api_key_manager = APIKeyManager()
-    
-    try:
-        keys_info = await api_key_manager.list_user_keys(user_id)
-        return [APIKeyInfo(**key_info) for key_info in keys_info]
-    
-    except Exception as e:
-        logger.error(f"Failed to list API keys for user {user_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list API keys: {str(e)}"
-        )
-
-
-@router.delete("/api-keys/{user_id}/{key_id}")
-async def revoke_api_key(
-    user_id: str,
-    key_id: str,
-    current_user: dict = Depends(require_permission("admin"))
-) -> Dict[str, bool]:
-    """
-    Revoke an API key.
-    
-    Requires admin permission.
-    """
-    # Prevent directory traversal attacks
-    if any(char in user_id for char in ['/', '\\', '.', ':', '<', '>', '|', '*', '?']):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid user_id format"
-        )
-    
-    if any(char in key_id for char in ['/', '\\', '.', ':', '<', '>', '|', '*', '?']):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid key_id format"
-        )
-    
-    api_key_manager = APIKeyManager()
-    
-    try:
-        # Get the key to construct full API key for revocation
-        keys_info = await api_key_manager.list_user_keys(user_id)
-        target_key = next((k for k in keys_info if k["key_id"] == key_id), None)
-        
-        if not target_key:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="API key not found"
-            )
-        
-        # Use database operations to revoke the API key
-        success = await api_key_manager.revoke_api_key(user_id, key_id)
-        
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="API key not found or already revoked"
-            )
-        
-        logger.info(
-            f"API key revocation completed by admin {current_user['user_id']}: "
-            f"user={user_id}, key_id={key_id}"
-        )
-        
-        
-        return {"success": True}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to revoke API key {key_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to revoke API key: {str(e)}"
-        )
+router = APIRouter()
 
 
 # System Monitoring Endpoints
 
-@router.get("/stats", response_model=SystemStatsResponse)
-async def get_system_stats(
-    current_user: dict = Depends(require_permission("admin"))
-) -> SystemStatsResponse:
-    """
-    Get comprehensive system statistics.
-    
-    Requires admin permission.
-    """
-    try:
-        db = await get_database()
-        
-        # Database statistics
-        db_stats_query = """
-            SELECT 
-                schemaname,
-                tablename,
-                n_tup_ins as inserts,
-                n_tup_upd as updates,
-                n_tup_del as deletes,
-                n_live_tup as live_tuples,
-                n_dead_tup as dead_tuples
-            FROM pg_stat_user_tables
-            ORDER BY schemaname, tablename;
-        """
-        
-        db_connection_info = await db.fetch_one("SELECT version() as version, current_database() as database")
-        db_stats_raw = await db.fetch_all(db_stats_query)
-        
-        database_stats = {
-            "version": db_connection_info["version"] if db_connection_info else "Unknown",
-            "database": db_connection_info["database"] if db_connection_info else "Unknown",
-            "tables": [{"schema": row["schemaname"], "table": row["tablename"], "live_tuples": row["live_tuples"]} for row in db_stats_raw],
-            "total_tables": len(db_stats_raw)
-        }
-        
-        # Storage statistics (file system)
-        import os
-        import shutil
-        storage_root = os.getenv("STORAGE_ROOT", "/app/storage")
-        if os.path.exists(storage_root):
-            total, used, free = shutil.disk_usage(storage_root)
-            storage_stats = {
-                "storage_root": storage_root,
-                "total_bytes": total,
-                "used_bytes": used,
-                "free_bytes": free,
-                "used_percentage": round(used / total * 100, 2) if total > 0 else 0
-            }
-        else:
-            storage_stats = {
-                "storage_root": storage_root,
-                "status": "not_available"
-            }
-        
-        # Rate limiting stats using PostgreSQL queries
-        rate_limit_count = await db.fetch_one(
-            "SELECT COUNT(*) as count FROM rate_limits WHERE expires_at > NOW()"
-        )
-        rate_limit_stats = {
-            "active_rate_limits": rate_limit_count["count"] if rate_limit_count else 0,
-            "llm_rate_limits": await db.fetch_val(
-                "SELECT COUNT(*) FROM rate_limits WHERE identifier LIKE 'llm_rate:%' AND expires_at > NOW()"
-            ) or 0
-        }
-        
-        # API key stats from PostgreSQL
-        api_key_count = await db.fetch_one(
-            "SELECT COUNT(*) as total, COUNT(CASE WHEN status = 'active' THEN 1 END) as active FROM api_keys"
-        )
-        api_key_stats = {
-            "total_keys": api_key_count["total"] if api_key_count else 0,
-            "active_keys": api_key_count["active"] if api_key_count else 0
-        }
-        
-        # System health
-        system_health = {
-            "database_available": True,
-            "storage_available": os.path.exists(storage_root),
-            "timestamp": datetime.now().isoformat(),
-            "status": "healthy"
-        }
-        
-        return SystemStatsResponse(
-            database_stats=database_stats,
-            storage_stats=storage_stats,
-            rate_limit_stats=rate_limit_stats,
-            api_key_stats=api_key_stats,
-            system_health=system_health
-        )
-        
-    except Exception as e:
-        logger.error(f"Failed to get system stats: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve system statistics: {str(e)}"
-        )
-
-
-@router.get("/rate-limits/{user_id}")
-async def get_user_rate_limits(
-    user_id: str,
-    current_user: dict = Depends(require_permission("admin"))
-) -> Dict[str, Any]:
-    """
-    Get current rate limit status for a user.
-    
-    Requires admin permission.
-    """
-    try:
-        llm_rate_limiter = LLMProviderRateLimiter()
-        
-        # Get LLM usage stats
-        llm_stats = await llm_rate_limiter.get_llm_usage_stats(user_id)
-        
-        # Get general rate limit info from PostgreSQL
-        db = await get_database()
-        
-        user_rate_limits_query = """
-            SELECT identifier, current_usage, max_limit, expires_at
-            FROM rate_limits 
-            WHERE identifier LIKE :pattern AND expires_at > NOW()
-        """
-        
-        rate_limit_rows = await db.fetch_all(
-            user_rate_limits_query, 
-            {"pattern": f"%user:{user_id}%"}
-        )
-        
-        user_rate_limits = {}
-        for row in rate_limit_rows:
-            identifier_parts = row["identifier"].split(":")
-            if len(identifier_parts) >= 3:
-                limit_type = identifier_parts[-1]  # Last part is the limit type
-                user_rate_limits[limit_type] = {
-                    "current": row["current_usage"],
-                    "limit": row["max_limit"],
-                    "expires_at": row["expires_at"].isoformat() if row["expires_at"] else None
-                }
-        
-        return {
-            "user_id": user_id,
-            "general_rate_limits": user_rate_limits,
-            "llm_usage": llm_stats,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to get rate limits for user {user_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve rate limit information: {str(e)}"
-        )
-
-
-# Configuration Management
-
-@router.get("/config")
-async def get_system_config(
-    current_user: dict = Depends(require_permission("admin"))
-) -> Dict[str, Any]:
-    """
-    Get current system configuration (non-sensitive).
-    
-    Requires admin permission.
-    """
-    try:
-        settings = get_settings()
-        
-        # Return non-sensitive configuration
-        config = {
-            "environment": settings.environment,
-            "debug": settings.debug,
-            "api": {
-                "host": settings.api.host,
-                "port": settings.api.port,
-                "workers": settings.api.workers,
-                "cors_origins": settings.api.cors_origins
-            },
-            "analysis": {
-                "max_file_size_mb": settings.analysis.max_file_size_mb,
-                "default_timeout_seconds": settings.analysis.default_timeout_seconds,
-                "max_timeout_seconds": settings.analysis.max_timeout_seconds,
-                "supported_formats": settings.analysis.supported_formats
-            },
-            "cache": {
-                "default_ttl_seconds": settings.cache.default_ttl_seconds,
-                "analysis_result_ttl_seconds": settings.cache.analysis_result_ttl_seconds,
-                "max_cache_size_mb": settings.cache.max_cache_size_mb
-            },
-            "security": {
-                "default_rate_limit_per_minute": settings.security.default_rate_limit_per_minute,
-                "default_rate_limit_per_day": settings.security.default_rate_limit_per_day,
-                "enforce_https": settings.security.enforce_https
-            },
-            "llm": {
-                "enabled_providers": settings.llm.enabled_providers,
-                "default_provider": settings.llm.default_provider,
-                "requests_per_minute": settings.llm.requests_per_minute,
-                "tokens_per_minute": settings.llm.tokens_per_minute
-            }
-        }
-        
-        return config
-        
-    except Exception as e:
-        logger.error(f"Failed to get system configuration: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve configuration: {str(e)}"
-        )
-
-
-# Development utilities (only available in development)
-
-@router.post("/dev/create-api-key")
-async def create_dev_api_key(
-    request: Request,
-    user_id: str = "dev_user"
-) -> Dict[str, str]:
-    """
-    Create a development API key.
-    
-    Only available in development/debug mode.
-    """
-    settings = get_settings()
-    
-    if settings.is_production:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Development endpoints not available in production"
-        )
-    
-    try:
-        from ..middleware import create_dev_api_key
-        
-        api_key = await create_dev_api_key(user_id)
-        
-        return {
-            "api_key": api_key,
-            "user_id": user_id,
-            "tier": "enterprise",
-            "note": "Development API key - do not use in production"
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to create development API key: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create development API key: {str(e)}"
-        )
-
-
-# Performance Metrics Endpoints
-
 @router.get("/metrics/current")
 async def get_current_metrics(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin"])),
 ):
-    """
-    Get current snapshot of all metrics.
-    
-    Returns counters, gauges, histograms, and performance data.
-    """
+    """Get current system metrics and performance data."""
     try:
         collector = get_metrics_collector()
         metrics = collector.get_current_metrics()
@@ -519,14 +42,18 @@ async def get_current_metrics(
         return {
             "timestamp": datetime.utcnow().isoformat(),
             "metrics": metrics,
-            "status": "active"
+            "system_info": {
+                "uptime_seconds": metrics.get("uptime_seconds", 0),
+                "total_requests": metrics.get("total_requests", 0),
+                "active_connections": metrics.get("active_connections", 0)
+            }
         }
         
     except Exception as e:
         logger.error(f"Failed to retrieve current metrics: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve metrics"
+            detail="Failed to retrieve current metrics"
         )
 
 
@@ -535,44 +62,26 @@ async def get_performance_metrics(
     request: Request,
     operation_type: Optional[str] = None,
     time_window_minutes: int = 60,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin"])),
 ):
-    """
-    Get performance summary for operations.
-    
-    Parameters:
-    - operation_type: Filter by operation type (decompilation, llm_request, etc.)
-    - time_window_minutes: Time window for analysis (default: 60 minutes)
-    """
+    """Get detailed performance metrics for operations."""
     try:
-        # Validate operation type if provided
-        op_type = None
         if operation_type:
             try:
                 op_type = OperationType(operation_type)
+                summary = get_performance_summary(op_type, time_window_minutes)
             except ValueError:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid operation_type. Valid options: {[op.value for op in OperationType]}"
+                    detail=f"Invalid operation type: {operation_type}"
                 )
-        
-        # Validate time window
-        if time_window_minutes < 1 or time_window_minutes > 1440:  # Max 24 hours
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="time_window_minutes must be between 1 and 1440"
-            )
-        
-        summary = get_performance_summary(op_type, time_window_minutes)
+        else:
+            summary = get_performance_summary(None, time_window_minutes)
         
         return {
             "timestamp": datetime.utcnow().isoformat(),
             "performance_summary": summary,
-            "parameters": {
-                "operation_type": operation_type,
-                "time_window_minutes": time_window_minutes
-            }
+            "operation_type": operation_type,
+            "time_window_minutes": time_window_minutes
         }
         
     except HTTPException:
@@ -589,8 +98,6 @@ async def get_performance_metrics(
 async def get_decompilation_metrics(
     request: Request,
     time_window_minutes: int = 60,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin"])),
 ):
     """Get detailed decompilation performance metrics."""
     try:
@@ -614,8 +121,6 @@ async def get_decompilation_metrics(
 async def get_llm_metrics(
     request: Request,
     time_window_minutes: int = 60,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin"])),
 ):
     """Get detailed LLM provider performance metrics."""
     try:
@@ -640,8 +145,6 @@ async def get_llm_metrics(
 @router.get("/circuit-breakers")
 async def get_all_circuit_breakers(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin"])),
 ):
     """Get status of all circuit breakers."""
     try:
@@ -666,34 +169,22 @@ async def get_all_circuit_breakers(
 async def get_circuit_breaker_status(
     circuit_name: str,
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin"])),
 ):
-    """Get detailed status of a specific circuit breaker."""
+    """Get detailed status for a specific circuit breaker."""
     try:
         manager = get_circuit_breaker_manager()
-        circuits = manager.get_all_circuits()
+        circuit_status = manager.get_circuit_status(circuit_name)
         
-        if circuit_name not in circuits:
+        if circuit_status is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Circuit breaker '{circuit_name}' not found"
             )
         
-        circuit = circuits[circuit_name]
-        
         return {
             "timestamp": datetime.utcnow().isoformat(),
             "circuit_name": circuit_name,
-            "state": circuit.get_state().value,
-            "is_available": circuit.is_available(),
-            "stats": circuit.get_stats(),
-            "config": {
-                "failure_threshold": circuit.config.failure_threshold,
-                "success_threshold": circuit.config.success_threshold,
-                "timeout_seconds": circuit.config.timeout_seconds,
-                "health_check_interval": circuit.config.health_check_interval
-            }
+            "status": circuit_status
         }
         
     except HTTPException:
@@ -710,29 +201,23 @@ async def get_circuit_breaker_status(
 async def reset_circuit_breaker(
     circuit_name: str,
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin"])),
 ):
     """Reset a specific circuit breaker to closed state."""
     try:
         manager = get_circuit_breaker_manager()
-        circuits = manager.get_all_circuits()
+        success = manager.reset_circuit_breaker(circuit_name)
         
-        if circuit_name not in circuits:
+        if not success:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Circuit breaker '{circuit_name}' not found"
             )
         
-        circuit = circuits[circuit_name]
-        await circuit.reset()
-        
-        logger.info(f"Circuit breaker {circuit_name} manually reset by user {current_user.get('user_id')}")
-        
         return {
-            "message": f"Circuit breaker '{circuit_name}' has been reset",
             "timestamp": datetime.utcnow().isoformat(),
-            "reset_by": current_user.get('user_id')
+            "circuit_name": circuit_name,
+            "action": "reset",
+            "success": True
         }
         
     except HTTPException:
@@ -749,29 +234,23 @@ async def reset_circuit_breaker(
 async def force_open_circuit_breaker(
     circuit_name: str,
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin"])),
 ):
-    """Force a circuit breaker to open state."""
+    """Force a circuit breaker to open state (for testing)."""
     try:
         manager = get_circuit_breaker_manager()
-        circuits = manager.get_all_circuits()
+        success = manager.force_open_circuit_breaker(circuit_name)
         
-        if circuit_name not in circuits:
+        if not success:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Circuit breaker '{circuit_name}' not found"
             )
         
-        circuit = circuits[circuit_name]
-        await circuit.force_open()
-        
-        logger.warning(f"Circuit breaker {circuit_name} manually forced open by user {current_user.get('user_id')}")
-        
         return {
-            "message": f"Circuit breaker '{circuit_name}' has been forced open",
             "timestamp": datetime.utcnow().isoformat(),
-            "forced_by": current_user.get('user_id')
+            "circuit_name": circuit_name,
+            "action": "force_open",
+            "success": True
         }
         
     except HTTPException:
@@ -787,45 +266,41 @@ async def force_open_circuit_breaker(
 @router.get("/circuit-breakers/health-check/all")
 async def health_check_all_circuits(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin"])),
 ):
-    """Perform health checks on all circuit breakers."""
+    """Run health checks on all circuit breakers."""
     try:
         manager = get_circuit_breaker_manager()
-        health_results = await manager.health_check_all()
+        health_results = manager.health_check_all()
         
         return {
             "timestamp": datetime.utcnow().isoformat(),
             "health_check_results": health_results,
-            "healthy_circuits": sum(1 for result in health_results.values() if result),
+            "total_healthy": sum(1 for result in health_results.values() if result.get("healthy", False)),
             "total_circuits": len(health_results)
         }
         
     except Exception as e:
-        logger.error(f"Failed to perform health checks on all circuits: {e}")
+        logger.error(f"Failed to run health checks: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to perform health checks on all circuits"
+            detail="Failed to run health checks on circuit breakers"
         )
 
 
-# Dashboard and Alerting Endpoints
+# Dashboard Endpoints
 
 @router.get("/dashboards/overview")
 async def get_overview_dashboard(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin"])),
 ):
-    """Get the main system overview dashboard."""
+    """Get comprehensive system overview dashboard."""
     try:
         generator = get_dashboard_generator()
-        dashboard = generator.generate_overview_dashboard()
+        dashboard_data = generator.generate_overview_dashboard()
         
         return {
-            "dashboard": dashboard.to_dict(),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
+            "dashboard": dashboard_data
         }
         
     except Exception as e:
@@ -839,17 +314,15 @@ async def get_overview_dashboard(
 @router.get("/dashboards/performance")
 async def get_performance_dashboard(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin"])),
 ):
-    """Get detailed performance dashboard."""
+    """Get performance-focused dashboard."""
     try:
         generator = get_dashboard_generator()
-        dashboard = generator.generate_performance_dashboard()
+        dashboard_data = generator.generate_performance_dashboard()
         
         return {
-            "dashboard": dashboard.to_dict(),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
+            "dashboard": dashboard_data
         }
         
     except Exception as e:
@@ -860,30 +333,25 @@ async def get_performance_dashboard(
         )
 
 
+# Alert Management Endpoints
+
 @router.get("/alerts")
 async def get_all_alerts(
     request: Request,
     include_history: bool = False,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin"])),
 ):
-    """Get all alerts with optional history."""
+    """Get all active alerts and optionally historical data."""
     try:
-        alert_manager = get_alert_manager()
+        manager = get_alert_manager()
+        alerts = manager.get_all_alerts(include_history=include_history)
         
-        active_alerts = alert_manager.get_active_alerts()
-        alert_summary = alert_manager.get_alert_summary()
-        
-        result = {
+        return {
             "timestamp": datetime.utcnow().isoformat(),
-            "summary": alert_summary,
-            "active_alerts": [alert.to_dict() for alert in active_alerts]
+            "alerts": alerts,
+            "include_history": include_history,
+            "total_active": len([a for a in alerts if a.get("status") == "active"]),
+            "total_alerts": len(alerts)
         }
-        
-        if include_history:
-            result["alert_history"] = [alert.to_dict() for alert in alert_manager.alert_history[-50:]]  # Last 50
-        
-        return result
         
     except Exception as e:
         logger.error(f"Failed to retrieve alerts: {e}")
@@ -896,18 +364,16 @@ async def get_all_alerts(
 @router.post("/alerts/check")
 async def run_alert_checks_endpoint(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin"])),
 ):
-    """Manually trigger alert checks."""
+    """Manually trigger alert checking process."""
     try:
-        triggered_alerts = await run_alert_checks()
+        results = await run_alert_checks()
         
         return {
             "timestamp": datetime.utcnow().isoformat(),
-            "alerts_checked": True,
-            "triggered_alerts": len(triggered_alerts),
-            "new_alerts": [alert.to_dict() for alert in triggered_alerts]
+            "alert_check_results": results,
+            "alerts_generated": len(results.get("new_alerts", [])),
+            "alerts_resolved": len(results.get("resolved_alerts", []))
         }
         
     except Exception as e:
@@ -922,26 +388,23 @@ async def run_alert_checks_endpoint(
 async def acknowledge_alert(
     alert_id: str,
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin"])),
 ):
-    """Acknowledge an active alert."""
+    """Acknowledge a specific alert."""
     try:
-        alert_manager = get_alert_manager()
-        user_id = current_user.get('user_id', 'unknown')
-        
-        success = alert_manager.acknowledge_alert(alert_id, user_id)
+        manager = get_alert_manager()
+        success = manager.acknowledge_alert(alert_id)
         
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Alert '{alert_id}' not found or not active"
+                detail=f"Alert '{alert_id}' not found"
             )
         
         return {
-            "message": f"Alert '{alert_id}' acknowledged",
-            "acknowledged_by": user_id,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
+            "alert_id": alert_id,
+            "action": "acknowledged",
+            "success": True
         }
         
     except HTTPException:
@@ -958,25 +421,23 @@ async def acknowledge_alert(
 async def resolve_alert(
     alert_id: str,
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin"])),
 ):
-    """Manually resolve an active alert."""
+    """Resolve a specific alert."""
     try:
-        alert_manager = get_alert_manager()
-        
-        success = alert_manager.resolve_alert(alert_id)
+        manager = get_alert_manager()
+        success = manager.resolve_alert(alert_id)
         
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Alert '{alert_id}' not found or not active"
+                detail=f"Alert '{alert_id}' not found"
             )
         
         return {
-            "message": f"Alert '{alert_id}' resolved",
-            "resolved_by": current_user.get('user_id', 'unknown'),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
+            "alert_id": alert_id,
+            "action": "resolved",
+            "success": True
         }
         
     except HTTPException:
@@ -989,21 +450,21 @@ async def resolve_alert(
         )
 
 
+# Monitoring and Health Endpoints
+
 @router.get("/monitoring/prometheus")
 async def get_prometheus_metrics(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin"])),
 ):
-    """Get Prometheus-format metrics for external monitoring integration."""
+    """Get metrics in Prometheus format."""
     try:
-        metrics_text = generate_prometheus_metrics()
+        metrics = generate_prometheus_metrics()
         
-        from fastapi.responses import PlainTextResponse
-        return PlainTextResponse(
-            content=metrics_text,
-            media_type="text/plain; version=0.0.4; charset=utf-8"
-        )
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "format": "prometheus",
+            "metrics": metrics
+        }
         
     except Exception as e:
         logger.error(f"Failed to generate Prometheus metrics: {e}")
@@ -1016,117 +477,46 @@ async def get_prometheus_metrics(
 @router.get("/monitoring/health-summary")
 async def get_health_summary(
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    auth_check = Depends(require_permission(["admin"])),
 ):
     """Get comprehensive system health summary."""
     try:
-        # Get various health indicators
+        # Get circuit breaker health
+        manager = get_circuit_breaker_manager()
+        circuit_health = manager.health_check_all()
+        
+        # Get alert status
         alert_manager = get_alert_manager()
-        circuit_manager = get_circuit_breaker_manager()
+        active_alerts = alert_manager.get_active_alerts()
         
-        alert_summary = alert_manager.get_alert_summary()
-        circuit_stats = circuit_manager.get_circuit_stats()
+        # Get metrics summary
+        collector = get_metrics_collector()
+        metrics = collector.get_current_metrics()
         
-        # Performance summaries
-        decomp_summary = get_performance_summary(OperationType.DECOMPILATION, 15)
-        llm_summary = get_performance_summary(OperationType.LLM_REQUEST, 15)
+        health_summary = {
+            "overall_status": "healthy",  # Will be determined by checks
+            "circuit_breakers": {
+                "total": len(circuit_health),
+                "healthy": sum(1 for h in circuit_health.values() if h.get("healthy", False)),
+                "status": "healthy" if all(h.get("healthy", False) for h in circuit_health.values()) else "degraded"
+            },
+            "alerts": {
+                "active_count": len(active_alerts),
+                "status": "healthy" if len(active_alerts) == 0 else "warning"
+            },
+            "metrics": {
+                "uptime_seconds": metrics.get("uptime_seconds", 0),
+                "total_requests": metrics.get("total_requests", 0),
+                "error_rate": metrics.get("error_rate_percent", 0)
+            }
+        }
         
-        # Calculate overall health score (0-100)
-        health_factors = []
-        
-        # Alert factor (0-25 points)
-        active_alerts = alert_summary["total_active"]
-        critical_alerts = alert_summary["severity_breakdown"]["critical"]
-        alert_score = max(0, 25 - (active_alerts * 3) - (critical_alerts * 10))
-        health_factors.append(("alerts", alert_score, 25))
-        
-        # Circuit breaker factor (0-25 points)
-        total_circuits = len(circuit_stats)
-        healthy_circuits = sum(1 for info in circuit_stats.values() if info["is_available"])
-        circuit_score = (healthy_circuits / total_circuits * 25) if total_circuits > 0 else 25
-        health_factors.append(("circuits", circuit_score, 25))
-        
-        # Performance factor (0-25 points each for decomp and LLM)
-        decomp_score = 25
-        if decomp_summary.get("total_operations", 0) > 0:
-            success_rate = decomp_summary["success_rate"]
-            avg_duration = decomp_summary["duration_stats"]["avg_ms"]
-            
-            # Reduce score for low success rate
-            if success_rate < 95:
-                decomp_score -= (95 - success_rate) * 0.5
-            
-            # Reduce score for slow performance  
-            if avg_duration > 10000:  # 10 seconds
-                decomp_score -= min(15, (avg_duration - 10000) / 2000)
-            
-            decomp_score = max(0, decomp_score)
-        
-        health_factors.append(("decompilation", decomp_score, 25))
-        
-        llm_score = 25
-        if llm_summary.get("total_operations", 0) > 0:
-            success_rate = llm_summary["success_rate"]
-            avg_duration = llm_summary["duration_stats"]["avg_ms"]
-            
-            if success_rate < 98:
-                llm_score -= (98 - success_rate) * 0.5
-            
-            if avg_duration > 5000:  # 5 seconds
-                llm_score -= min(15, (avg_duration - 5000) / 1000)
-            
-            llm_score = max(0, llm_score)
-        
-        health_factors.append(("llm", llm_score, 25))
-        
-        # Calculate overall health
-        total_score = sum(score for _, score, _ in health_factors)
-        overall_health = min(100, total_score)
-        
-        # Determine status
-        if overall_health >= 90:
-            status = "healthy"
-        elif overall_health >= 70:
-            status = "warning"
-        else:
-            status = "critical"
+        # Determine overall status
+        if health_summary["alerts"]["status"] == "warning" or health_summary["circuit_breakers"]["status"] == "degraded":
+            health_summary["overall_status"] = "degraded"
         
         return {
             "timestamp": datetime.utcnow().isoformat(),
-            "overall_health": {
-                "score": round(overall_health, 1),
-                "status": status,
-                "factors": [
-                    {
-                        "component": name,
-                        "score": round(score, 1),
-                        "max_score": max_score,
-                        "percentage": round(score / max_score * 100, 1)
-                    }
-                    for name, score, max_score in health_factors
-                ]
-            },
-            "component_health": {
-                "alerts": alert_summary,
-                "circuits": {
-                    "total": total_circuits,
-                    "healthy": healthy_circuits,
-                    "health_percentage": round(healthy_circuits / total_circuits * 100, 1) if total_circuits > 0 else 100
-                },
-                "performance": {
-                    "decompilation": {
-                        "operations": decomp_summary.get("total_operations", 0),
-                        "success_rate": decomp_summary.get("success_rate", 0),
-                        "avg_duration_ms": decomp_summary.get("duration_stats", {}).get("avg_ms", 0)
-                    },
-                    "llm": {
-                        "operations": llm_summary.get("total_operations", 0),
-                        "success_rate": llm_summary.get("success_rate", 0),
-                        "avg_duration_ms": llm_summary.get("duration_stats", {}).get("avg_ms", 0)
-                    }
-                }
-            }
+            "health_summary": health_summary
         }
         
     except Exception as e:
@@ -1134,58 +524,4 @@ async def get_health_summary(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate health summary"
-        )
-
-
-# Bootstrap endpoint for initial setup
-@router.post("/bootstrap/create-admin")
-async def bootstrap_create_admin():
-    """
-    Bootstrap endpoint to create the first admin user.
-    
-    Only works when no admin-tier API keys exist in the system.
-    This provides a secure way to create the initial admin user.
-    """
-    try:
-        # Check if admin keys already exist using PostgreSQL
-        db = await get_database()
-        admin_keys = await db.fetch_all(
-            "SELECT key_id FROM api_keys WHERE 'admin' = ANY(permissions) AND status = 'active'"
-        )
-        
-        if admin_keys:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Admin users already exist. Use existing admin credentials to create additional users."
-            )
-        
-        # Create bootstrap admin key
-        api_key_manager = APIKeyManager()
-        api_key, key_id = await api_key_manager.create_api_key(
-            user_id="bootstrap_admin",
-            tier="enterprise",
-            permissions=["read", "write", "admin"]
-        )
-        
-        logger.warning("Bootstrap admin API key created - this should only happen during initial setup")
-        
-        return {
-            "success": True,
-            "message": "Bootstrap admin user created successfully",
-            "api_key": api_key,
-            "key_id": key_id,
-            "user_id": "bootstrap_admin",
-            "tier": "enterprise",
-            "permissions": ["read", "write", "admin"],
-            "warning": "This is a one-time bootstrap operation. Save the API key securely!",
-            "usage": f'Use this key in the Authorization header: Bearer {api_key}'
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to create bootstrap admin: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create bootstrap admin: {str(e)}"
         )

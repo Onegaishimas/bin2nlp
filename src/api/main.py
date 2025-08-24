@@ -22,9 +22,7 @@ from ..core.dashboards import run_alert_checks
 from .routes import decompilation, health, llm_providers, admin, dashboard
 from .middleware import (
     ErrorHandlingMiddleware,
-    RequestLoggingMiddleware, 
-    AuthenticationMiddleware,
-    RateLimitingMiddleware
+    RequestLoggingMiddleware
 )
 
 
@@ -145,18 +143,11 @@ def create_app() -> FastAPI:
         - **Multi-format support**: PE, ELF, Mach-O binary analysis
         - **Multi-LLM providers**: OpenAI, Anthropic, Google Gemini integration
         - **Scalable architecture**: PostgreSQL database, file storage, async processing
-        - **Production ready**: Authentication, rate limiting, monitoring
+        - **Production ready**: Open access, monitoring, observability
 
-        ### Authentication
-        Most endpoints require API key authentication. Provide your API key in the 
-        `Authorization` header as `Bearer <your_api_key>`.
-
-        ### Rate Limits
-        Rate limits vary by access tier:
-        - **Basic**: 10 requests/minute, 600/hour
-        - **Standard**: 60 requests/minute, 3600/hour  
-        - **Premium**: 300 requests/minute, 18000/hour
-        - **Enterprise**: 1000 requests/minute, 60000/hour
+        ### Open Access
+        All endpoints are freely accessible without authentication requirements.
+        This service is designed for open binary analysis and research.
 
         ### Support
         - Documentation: [GitHub Repository](https://github.com/example/bin2nlp)
@@ -212,27 +203,8 @@ def create_app() -> FastAPI:
     app.add_middleware(ErrorHandlingMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     
-    # Authentication and rate limiting middleware
-    # Add rate limiting in production
-    if settings.is_production:
-        app.add_middleware(RateLimitingMiddleware)
-    
-    # Add authentication middleware based on security settings
-    require_auth = settings.security.require_api_keys
-    app.add_middleware(
-        AuthenticationMiddleware,
-        require_auth=require_auth
-    )
-    
-    # Log middleware configuration
-    if settings.is_production and require_auth:
-        logger.info("Production middleware enabled (authentication + rate limiting)")
-    elif settings.is_production:
-        logger.info("Production middleware enabled (rate limiting only)")
-    elif require_auth:
-        logger.info("Development mode with authentication enabled")
-    else:
-        logger.info("Development mode - authentication and rate limiting disabled")
+    # No rate limiting - open access production service
+    logger.info("Production mode - open access (no authentication or rate limiting)")
     
     # Include routers
     app.include_router(

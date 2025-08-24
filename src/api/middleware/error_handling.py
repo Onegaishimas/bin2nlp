@@ -40,9 +40,20 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             return response
             
-        except HTTPException:
-            # Re-raise FastAPI HTTPExceptions as-is
-            raise
+        except HTTPException as exc:
+            # Convert FastAPI HTTPExceptions to proper JSON responses
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={
+                    "success": False,
+                    "error": {
+                        "type": "http_exception",
+                        "message": exc.detail,
+                        "status_code": exc.status_code
+                    }
+                },
+                headers=getattr(exc, 'headers', None)
+            )
             
         except UnsupportedFormatException as exc:
             logger.warning(f"Unsupported file format: {exc}")

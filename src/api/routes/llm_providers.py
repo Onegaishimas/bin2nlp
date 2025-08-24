@@ -6,23 +6,78 @@ capabilities, and configuration options.
 """
 
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from fastapi import APIRouter, HTTPException, Depends
 
 from ...core.logging import get_logger
+from ...core.config import get_settings
 from ...llm.providers.factory import LLMProviderFactory
+from ...llm.base import LLMConfig, LLMProviderType
 from ...models.api.decompilation import LLMProvidersResponse, LLMProviderInfo
 
 
 logger = get_logger(__name__)
 router = APIRouter()
 
+# Global factory instance (singleton pattern)
+_factory_instance: Optional[LLMProviderFactory] = None
+
 
 async def get_llm_factory() -> LLMProviderFactory:
-    """Dependency to get initialized LLM provider factory."""
+    """Dependency to get initialized LLM provider factory (singleton)."""
+    global _factory_instance
+    
+    if _factory_instance is not None:
+        return _factory_instance
+    
+    # Create and configure factory
     factory = LLMProviderFactory()
+    settings = get_settings()
+    
+    # OpenAI Provider (Ollama)
+    if settings.llm.openai_api_key:
+        openai_config = LLMConfig(
+            provider_id=LLMProviderType.OPENAI,
+            api_key=settings.llm.openai_api_key,
+            default_model=settings.llm.openai_default_model or "gpt-4",
+            endpoint_url=settings.llm.openai_base_url,
+            max_tokens=settings.llm.default_max_tokens or 4000,
+            temperature=settings.llm.default_temperature or 0.1,
+            timeout_seconds=settings.llm.request_timeout_seconds or 30
+        )
+        factory.add_provider(openai_config)
+        logger.info(f"Added OpenAI provider with endpoint: {settings.llm.openai_base_url}")
+    
+    # Anthropic Provider
+    if settings.llm.anthropic_api_key:
+        anthropic_config = LLMConfig(
+            provider_id=LLMProviderType.ANTHROPIC,
+            api_key=settings.llm.anthropic_api_key,
+            default_model=settings.llm.anthropic_default_model or "claude-3-sonnet-20240229",
+            max_tokens=settings.llm.default_max_tokens or 4000,
+            temperature=settings.llm.default_temperature or 0.1,
+            timeout_seconds=settings.llm.request_timeout_seconds or 30
+        )
+        factory.add_provider(anthropic_config)
+        logger.info("Added Anthropic provider")
+    
+    # Google Gemini Provider
+    if settings.llm.gemini_api_key:
+        gemini_config = LLMConfig(
+            provider_id=LLMProviderType.GEMINI,
+            api_key=settings.llm.gemini_api_key,
+            default_model=settings.llm.gemini_default_model or "gemini-pro",
+            max_tokens=settings.llm.default_max_tokens or 4000,
+            temperature=settings.llm.default_temperature or 0.1,
+            timeout_seconds=settings.llm.request_timeout_seconds or 30
+        )
+        factory.add_provider(gemini_config)
+        logger.info("Added Gemini provider")
+    
     await factory.initialize()
+    _factory_instance = factory
+    logger.info(f"LLM factory initialized with {len(factory.provider_configs)} providers")
     return factory
 
 
