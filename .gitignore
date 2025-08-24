@@ -191,8 +191,8 @@ ehthumbs.db
 Thumbs.db
 
 # Project specific
-# Redis dumps and logs
-dump.rdb
+# Database dumps and logs
+*.sql
 *.log
 logs/
 

@@ -33,7 +33,6 @@ dependencies = [
     "uvicorn[standard]>=0.24.0",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
-    "redis>=5.0.0",
     "r2pipe>=1.8.0",
     "structlog>=23.2.0",
 ]
@@ -119,7 +118,7 @@ ensure_newline_before_comments = true
 src_paths = ["src", "tests"]
 known_first_party = ["src"]
 known_third_party = [
-    "fastapi", "pydantic", "redis", "r2pipe", "structlog", 
+    "fastapi", "pydantic", "r2pipe", "structlog", 
     "pytest", "uvicorn", "httpx"
 ]
 sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
@@ -152,7 +151,6 @@ pretty = true
 [[tool.mypy.overrides]]
 module = [
     "r2pipe.*",
-    "redis.*",
     "structlog.*",
     "uvicorn.*",
     "magic.*",
@@ -185,7 +183,6 @@ markers = [
     "integration: Integration tests (slower, may use external services)",
     "performance: Performance and benchmark tests",
     "slow: Tests that take a long time to run",
-    "redis: Tests that require Redis connection",
     "radare2: Tests that require radare2 installation",
     "api: API endpoint tests",
     "models: Data model tests",
@@ -194,8 +191,6 @@ markers = [
 ]
 filterwarnings = [
     "error",
-    "ignore::DeprecationWarning:aioredis.*",
-    "ignore::DeprecationWarning:redis.*",
     "ignore::PendingDeprecationWarning:pydantic.*",
     "ignore::UserWarning:structlog.*",
 ]

@@ -753,5 +753,3 @@ class ResultCache:
             pass  # Don't fail operations due to access stats errors
 
 
-# Compatibility aliases for existing code that imports from this module
-RedisClient = FileStorageClient

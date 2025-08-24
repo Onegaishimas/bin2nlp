@@ -1,7 +1,7 @@
 """
-Simple file-based storage as Redis alternative.
+Simple file-based storage system.
 
-Provides equivalent functionality with just the filesystem:
+Provides efficient data persistence with just the filesystem:
 - Job results stored as JSON files
 - Simple, portable, no external dependencies
 - Works in any environment with filesystem access

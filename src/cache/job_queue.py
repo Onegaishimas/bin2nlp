@@ -387,5 +387,3 @@ class JobQueue:
             return 0
 
 
-# Compatibility aliases for existing code
-RedisClient = None  # Not used in PostgreSQL implementation

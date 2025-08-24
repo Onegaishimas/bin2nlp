@@ -793,8 +793,3 @@ async def init_file_storage_client(settings: Optional[Settings] = None) -> FileS
     return _file_storage_client
 
 
-# Compatibility aliases for existing code
-RedisClient = FileStorageClient
-get_redis_client = get_file_storage_client
-close_redis_client = close_file_storage_client
-init_redis_client = init_file_storage_client

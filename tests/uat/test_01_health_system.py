@@ -39,8 +39,8 @@ class TestHealthSystem:
             assert isinstance(components, dict), "Components should be a dictionary"
             
             # Check for expected components
-            if "redis" in components:
-                assert "status" in components["redis"]
+            if "database" in components:
+                assert "status" in components["database"]
             if "decompilation_engine" in components:
                 assert "status" in components["decompilation_engine"]
 

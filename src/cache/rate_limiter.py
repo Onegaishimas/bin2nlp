@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from ..core.config import Settings, get_settings
 from ..core.exceptions import RateLimitException, CacheException
 from ..core.logging import get_logger
-from ..storage.base import get_file_storage
+from ..storage.file_storage import get_file_storage
 
 
 class RateLimitResult(NamedTuple):
@@ -573,5 +573,3 @@ class RateLimiter:
             )
             return {}
     
-    # Compatibility aliases for existing code
-    RedisClient = None  # Not used in PostgreSQL implementation

@@ -255,7 +255,7 @@ Acceptance Criteria:
 
 **Internal Integration:**
 - Clean interface for LLM translation layer consumption
-- Cache-compatible output format for Redis storage
+- Cache-compatible output format for file-based storage
 - Event hooks for analysis progress monitoring
 - Logging integration for debugging and performance monitoring
 
@@ -380,7 +380,7 @@ class TranslationHints:
 ### Data Persistence and Retrieval
 
 **Temporary Storage:**
-- Analysis results cached in Redis with configurable TTL (1-24 hours)
+- Analysis results cached in file storage with configurable TTL (1-24 hours)
 - Temporary file handling with automatic cleanup
 - Progress state storage for long-running analysis operations
 
@@ -608,7 +608,7 @@ class DecompilationConfigBuilder:
 **Core Infrastructure:**
 - Container environment with security restrictions
 - Temporary file system with automatic cleanup
-- Redis cache for result storage (provided by infrastructure)
+- File-based cache for result storage (provided by infrastructure)
 - Logging and monitoring system integration
 
 **Project Components:**
@@ -717,7 +717,7 @@ class DecompilationConfigBuilder:
 
 **Translation Integration Readiness:**
 - Successfully integrates with FastAPI application framework for translation-ready endpoints
-- Compatible with Redis caching layer for translation context storage
+- Compatible with file-based caching layer for translation context storage
 - Works within Docker container environment optimized for decompilation + translation
 - Ready for multi-LLM provider integration (OpenAI, Anthropic, Gemini)
 - Structured output format validated for external analysis tool consumption

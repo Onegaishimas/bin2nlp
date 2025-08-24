@@ -247,8 +247,8 @@ class TestLLMRateLimitingIntegration:
         )
         
         if not allowed:
-            # Rate limiter requires Redis - skip if not available
-            pytest.skip("Redis not available for rate limiting test")
+            # Rate limiter should be available with PostgreSQL storage
+            pytest.fail("Rate limiting failed unexpectedly")
         
         assert allowed is True
         assert reason == ""
@@ -270,8 +270,7 @@ class TestLLMRateLimitingIntegration:
             assert provider_id in stats
             assert stats[provider_id]["tokens_used"] >= 150
         except Exception as e:
-            if "Redis" in str(e):
-                pytest.skip("Redis not available for usage tracking test")
+            # Usage tracking should work with PostgreSQL storage
             raise
 
 

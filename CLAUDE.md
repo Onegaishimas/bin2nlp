@@ -22,13 +22,13 @@
 **Current Operational Status:**
 - ✅ **Complete REST API:** All endpoints working (22 routes) with file upload support
 - ✅ **Authentication System:** API key management with tier-based access control  
-- ✅ **Rate Limiting:** Redis-based throttling with graceful degradation
+- ✅ **Rate Limiting:** File-based throttling with graceful degradation
 - ✅ **Error Handling:** Structured responses with proper HTTP status codes
 - ✅ **File Upload Processing:** Binary file validation and async job management
 - ✅ **LLM Integration:** Multi-provider framework ready for translation services
 - ✅ **Docker Containerization:** Multi-stage build with production and development configs
 - ✅ **Deployment Automation:** One-command deployment scripts and health validation
-- ✅ **Service Architecture:** API + Redis + Workers + Nginx proxy in Docker Compose
+- ✅ **Service Architecture:** API + PostgreSQL + Workers + Nginx proxy in Docker Compose
 - ✅ **Configuration Management:** Environment templates and production security settings
 - ✅ **Structured Logging:** Complete logging infrastructure with correlation IDs and context
 - ✅ **Performance Metrics:** Comprehensive metrics collection for decompilation and LLM operations
@@ -131,9 +131,9 @@ hk-break    # Break/interruption
 ## Technology Stack
 - **Frontend:** N/A (API-only service)
 - **Backend:** FastAPI with Uvicorn ASGI server, Python 3.11+
-- **Database:** Redis (cache-only, no persistent storage)
+- **Database:** PostgreSQL with file-based caching
 - **Testing:** Balanced pyramid (pytest, unit tests + integration tests + smoke tests)
-- **Deployment:** Multi-container Docker setup (API + workers + Redis)
+- **Deployment:** Multi-container Docker setup (API + workers + PostgreSQL)
 
 ## Development Standards
 
@@ -145,7 +145,7 @@ hk-break    # Break/interruption
 
 ### Coding Patterns
 - API endpoints use Pydantic models for request/response validation
-- Async/await for all I/O operations (file processing, Redis, LLM calls)
+- Async/await for all I/O operations (file processing, PostgreSQL, LLM calls)
 - Background tasks for long-running analysis operations
 - Consistent error handling with custom exception hierarchy
 - Structured logging with contextual information
@@ -165,11 +165,11 @@ hk-break    # Break/interruption
 - Security-first: sandboxed execution, no persistent binary storage
 
 ## Implementation Notes
-- Use FastAPI dependency injection for Redis, config, and services
+- Use FastAPI dependency injection for PostgreSQL, config, and services
 - radare2 integration via r2pipe in isolated containers
 - **Ollama LLM Service**: Primary LLM provider at `ollama.mcslab.io:80` with `phi4:latest` model via OpenAI-compatible API
 - Result caching with configurable TTL (1-24 hours)
-- Container resource limits: API (512MB), Workers (2GB), Redis (256MB)
+- Container resource limits: API (512MB), Workers (2GB), PostgreSQL (1GB)
 
 ## LLM Provider Configuration
 
@@ -340,7 +340,7 @@ After each development session, update:
 ### Testing Patterns
 - Each module gets corresponding test file: `test_[module_name].py`
 - Test naming: `test_[function_name]_[scenario]` for pytest
-- Mock external dependencies (radare2, Ollama, Redis)
+- Mock external dependencies (radare2, Ollama, PostgreSQL)
 - Test both happy path and error cases
 - Aim for 85% coverage minimum for core business logic
 
@@ -431,7 +431,7 @@ After each development session, update:
 - **Core Achievement:** Implemented comprehensive .env loading with strategic container overrides, following strict single-source principle
 - **Major Technical Breakthrough:**
   - Added env_file directive to docker-compose.yml for automatic loading of 88+ environment variables from .env file
-  - Strategic container-specific overrides ONLY for deployment-critical values (REDIS_HOST, ENVIRONMENT, SECURITY settings)
+  - Strategic container-specific overrides ONLY for deployment-critical values (DATABASE_HOST, ENVIRONMENT, SECURITY settings)
   - Eliminated ALL duplicate environment variable definitions between .env and docker-compose.yml
   - LLM_OPENAI_* variables now load correctly from single source (.env file)
 - **API Form Field Discovery:** Fixed API parameter handling - endpoint expects individual form fields (llm_provider, analysis_depth) not JSON llm_config object
@@ -448,11 +448,11 @@ After each development session, update:
 - **Core Achievement:** Successfully implemented `env_file:` directive in docker-compose.yml with strategic container overrides
 - **Technical Enhancements:** 
   - Enhanced docker-compose.yml with .env integration (88 environment variables automatically loaded)
-  - Maintained production security with container-specific overrides (REDIS_HOST, ENVIRONMENT)
+  - Maintained production security with container-specific overrides (DATABASE_HOST, ENVIRONMENT)
   - Verified comprehensive health checks: radare2, Python environment, API endpoints all operational
   - Confirmed authentication middleware active and security properly enforced
 - **Infrastructure Validation:** 
-  - Multi-container deployment (API + Redis) fully functional
+  - Multi-container deployment (API + PostgreSQL) fully functional
   - Environment configuration loading working perfectly
   - Application restart successful with updated configuration
 - **Production Status:** System fully operational with excellent configuration management practices
@@ -521,18 +521,18 @@ After each development session, update:
 
 ### Session 2: 2025-08-15 - Architecture Decision Record Creation
 - **Accomplished:** Created comprehensive ADR with tech stack decisions, updated CLAUDE.md with Project Standards
-- **Technology Stack:** FastAPI, modular monolith, Redis cache, multi-container Docker, balanced testing
+- **Technology Stack:** FastAPI, modular monolith, PostgreSQL database with file cache, multi-container Docker, balanced testing
 - **Next:** Begin feature development with first Feature PRD for Multi-Platform Binary Analysis Engine
 - **Files Created:** 000_PADR|bin2nlp.md, updated CLAUDE.md with standards
 - **Duration:** ~45 minutes
 
 ### Session 3: 2025-08-16 - Cache Layer Implementation & Testing
 - **Accomplished:** Complete Task 2.0 Cache Layer Implementation with comprehensive unit tests
-- **Components Built:** Redis client, job queue, result cache, rate limiter, session manager
-- **Testing:** 4 comprehensive test suites with mocked Redis, time-based scenarios, error handling
+- **Components Built:** Database client, job queue, result cache, rate limiter, session manager
+- **Testing:** 4 comprehensive test suites with mocked database, time-based scenarios, error handling
 - **Technical Features:** Priority queuing, sliding window rate limiting, TTL management, session tracking
 - **Files Created:** src/cache/*.py (5 files), tests/unit/cache/*.py (4 test files), updated requirements.txt
-- **Next:** Task 2.7 Integration Tests with Real Redis, or proceed to Task 3.0 Binary Analysis Engine
+- **Next:** Task 2.7 Integration Tests with Real Database, or proceed to Task 3.0 Binary Analysis Engine
 - **Duration:** ~2 hours
 
 ## Root Directory Structure & File Purpose

@@ -44,8 +44,8 @@ async def auth_headers():
     try:
         api_key = await create_dev_api_key("e2e_test_user") 
         return {"Authorization": f"Bearer {api_key}"}
-    except Exception:
-        pytest.skip("Redis not available for authentication")
+    except Exception as e:
+        pytest.skip(f"Authentication system not available: {e}")
 
 
 @pytest.fixture
@@ -361,7 +361,7 @@ class TestAdminWorkflow:
         
         if response.status_code == 200:
             stats = response.json()
-            assert "system_health" in stats or "redis_stats" in stats
+            assert "system_health" in stats or "database_stats" in stats
 
 
 @pytest.mark.slow

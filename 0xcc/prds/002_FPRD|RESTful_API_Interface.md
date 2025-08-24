@@ -567,7 +567,7 @@ class UploadSession:
 
 **Temporary Data Storage:**
 - Uploaded files stored temporarily with automatic cleanup
-- Analysis results cached in Redis with TTL management
+- Analysis results cached in file storage with TTL management
 - Job status and metadata retained for audit trail
 - No persistent storage of binary file content (security requirement)
 
@@ -590,12 +590,12 @@ class UploadSession:
 **Container and Deployment:**
 - Stateless API design for horizontal scaling
 - Docker container deployment with health checks
-- Redis integration for caching and session management
+- File-based storage integration for caching and session management
 - Environment-based configuration management
 
 **Security and Authentication:**
 - API key-based authentication implementation
-- Rate limiting using Redis-backed counters
+- Rate limiting using file-based counters
 - Input validation and sanitization for all endpoints
 - CORS configuration for cross-origin requests
 
@@ -615,7 +615,7 @@ class UploadSession:
 
 **Integration Performance:**
 - Analysis Engine integration via internal APIs
-- Redis cache with sub-millisecond response times
+- File-based cache with fast response times
 - Background task queuing for asynchronous operations
 - Circuit breaker patterns for resilient service integration
 
@@ -660,7 +660,7 @@ class AnalysisEngineClient:
 
 **Cache Integration:**
 ```python
-# Redis Cache Interface
+# File-Based Cache Interface
 class CacheService:
     async def cache_result(
         self, 
@@ -837,7 +837,7 @@ class CacheService:
 - Error handling and timeout management
 - Performance metrics and monitoring integration
 
-**Redis Cache Service:**
+**File-Based Cache Service:**
 - Result caching with TTL management
 - Rate limiting counter storage
 - Session and temporary data storage
@@ -919,7 +919,7 @@ class CacheService:
 
 **API Endpoint Testing:**
 - Test all HTTP endpoints with various input scenarios
-- Mock external dependencies (Analysis Engine, Redis, storage)
+- Mock external dependencies (Analysis Engine, file storage)
 - Validate request/response serialization and validation
 - Test authentication and authorization logic
 - Achieve 90% code coverage for API layer
@@ -934,7 +934,7 @@ class CacheService:
 
 **External Service Integration:**
 - Test Binary Analysis Engine integration with real analysis requests
-- Verify Redis cache integration with actual caching operations
+- Verify file-based cache integration with actual caching operations
 - Test pre-signed URL generation and file upload workflows
 - Validate authentication service integration
 
@@ -979,7 +979,7 @@ class CacheService:
 **High Complexity Areas:**
 - Asynchronous job management and status tracking (Risk: Medium-High)
 - Pre-signed URL integration with cloud storage (Risk: Medium)
-- Rate limiting implementation with Redis backend (Risk: Medium)
+- Rate limiting implementation with file-based backend (Risk: Medium)
 - Error handling consistency across all endpoints (Risk: Medium)
 
 **Medium Complexity Areas:**
@@ -1004,7 +1004,7 @@ class CacheService:
 
 **Phase 3: Advanced Features (Week 3)**
 1. Asynchronous job management and status tracking
-2. Rate limiting implementation with Redis
+2. Rate limiting implementation with file-based storage
 3. Comprehensive error handling and recovery
 4. API documentation and testing framework
 
@@ -1046,7 +1046,7 @@ class CacheService:
 **Resource Requirements:**
 - 1 senior developer for API architecture and core implementation
 - Access to cloud storage service for pre-signed URL testing
-- Redis instance for rate limiting and caching testing
+- File storage system for rate limiting and caching testing
 - Load testing tools and infrastructure for performance validation
 
 **Risk Mitigation Timeline:**

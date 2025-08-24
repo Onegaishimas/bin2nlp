@@ -46,7 +46,6 @@ class ConfigurationValidator:
         self.validation_warnings.clear()
         
         # Validate different configuration sections
-        self._validate_database_config(settings.database)
         self._validate_analysis_config(settings.analysis)
         self._validate_api_config(settings.api)
         self._validate_security_config(settings.security)
@@ -83,35 +82,6 @@ class ConfigurationValidator:
         
         return validation_report
     
-    def _validate_database_config(self, db_config) -> None:
-        """Validate Redis database configuration."""
-        # Check Redis connection parameters
-        if not db_config.host:
-            self.validation_errors.append("Redis host cannot be empty")
-        
-        if not (1 <= db_config.port <= 65535):
-            self.validation_errors.append(f"Redis port {db_config.port} is invalid")
-        
-        if not (0 <= db_config.db <= 15):
-            self.validation_errors.append(f"Redis database number {db_config.db} is invalid")
-        
-        # Validate connection pool settings
-        if db_config.max_connections < 1:
-            self.validation_errors.append("Redis max_connections must be at least 1")
-        elif db_config.max_connections > 100:
-            self.validation_warnings.append("Redis max_connections is very high, may consume excessive memory")
-        
-        # Check timeout settings
-        if db_config.socket_connect_timeout < 0.1:
-            self.validation_warnings.append("Redis socket_connect_timeout is very low")
-        elif db_config.socket_connect_timeout > 30:
-            self.validation_warnings.append("Redis socket_connect_timeout is very high")
-        
-        # Validate health check interval
-        if db_config.health_check_interval < 5:
-            self.validation_warnings.append("Redis health_check_interval is very low")
-        elif db_config.health_check_interval > 300:
-            self.validation_warnings.append("Redis health_check_interval is very high")
     
     def _validate_analysis_config(self, analysis_config) -> None:
         """Validate binary analysis configuration."""
@@ -408,17 +378,7 @@ class ConfigurationValidator:
     
     def _validate_network_connectivity(self, settings: Settings) -> None:
         """Validate network connectivity for external dependencies."""
-        # Test Redis connectivity
-        try:
-            sock = socket.create_connection(
-                (settings.database.host, settings.database.port), 
-                timeout=5
-            )
-            sock.close()
-        except (socket.error, socket.timeout):
-            self.validation_warnings.append(f"Cannot connect to Redis at {settings.database.host}:{settings.database.port}")
-        except Exception as e:
-            self.validation_warnings.append(f"Redis connectivity test failed: {e}")
+        # No network connectivity tests needed for file-based storage
     
     def _validate_file_permissions(self, settings: Settings) -> None:
         """Validate file system permissions."""
@@ -453,8 +413,6 @@ class ConfigurationValidator:
         if settings.cache.max_cache_size_mb < 256:
             recommendations.append("Consider increasing cache size for better performance")
         
-        if settings.database.max_connections < 10:
-            recommendations.append("Consider increasing Redis max_connections for high load scenarios")
         
         # Security recommendations
         if settings.security.api_key_length < 32:
@@ -515,11 +473,6 @@ class EnvironmentManager:
             Dictionary mapping env var names to descriptions
         """
         return {
-            # Database
-            "REDIS_HOST": "Redis server hostname",
-            "REDIS_PORT": "Redis server port",
-            "REDIS_PASSWORD": "Redis authentication password (if required)",
-            
             # API
             "API_HOST": "API server bind address",
             "API_PORT": "API server port",
@@ -546,11 +499,6 @@ class EnvironmentManager:
             Dictionary mapping env var names to descriptions
         """
         return {
-            # Database optional
-            "REDIS_DB": "Redis database number (0-15)",
-            "REDIS_USERNAME": "Redis authentication username",
-            "REDIS_MAX_CONNECTIONS": "Maximum Redis connection pool size",
-            "REDIS_SOCKET_CONNECT_TIMEOUT": "Redis connection timeout in seconds",
             
             # API optional
             "API_WORKERS": "Number of API worker processes",
@@ -752,19 +700,16 @@ class EnvironmentManager:
         settings = get_settings()
         env_vars = {}
         
-        # Database settings
+        # Database settings (PostgreSQL)
         env_vars.update({
-            "REDIS_HOST": settings.database.host,
-            "REDIS_PORT": str(settings.database.port),
-            "REDIS_DB": str(settings.database.db),
-            "REDIS_MAX_CONNECTIONS": str(settings.database.max_connections),
-            "REDIS_SOCKET_CONNECT_TIMEOUT": str(settings.database.socket_connect_timeout),
+            "DATABASE_HOST": settings.database.host,
+            "DATABASE_PORT": str(settings.database.port),
+            "DATABASE_NAME": settings.database.name,
+            "DATABASE_USER": settings.database.user,
+            "DATABASE_PASSWORD": settings.database.password,
+            "DATABASE_POOL_SIZE": str(settings.database.pool_size),
+            "DATABASE_POOL_TIMEOUT": str(settings.database.pool_timeout),
         })
-        
-        if settings.database.password:
-            env_vars["REDIS_PASSWORD"] = settings.database.password
-        if settings.database.username:
-            env_vars["REDIS_USERNAME"] = settings.database.username
         
         # API settings
         env_vars.update({

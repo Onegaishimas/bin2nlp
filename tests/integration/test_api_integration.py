@@ -45,9 +45,9 @@ async def auth_headers():
         # Create development API key
         api_key = await create_dev_api_key("test_user")
         return {"Authorization": f"Bearer {api_key}"}
-    except Exception:
-        # If Redis is not available, skip auth-required tests
-        pytest.skip("Redis not available for API key creation")
+    except Exception as e:
+        # If authentication system is not available, skip auth-required tests
+        pytest.skip(f"Authentication system not available: {e}")
 
 
 class TestHealthEndpoints:
@@ -274,7 +274,7 @@ class TestAdminEndpoints:
         """Test admin statistics endpoint."""
         response = await async_client.get("/api/v1/admin/stats", headers=auth_headers)
         
-        # Should either work or require Redis
+        # Should either work or require database
         assert response.status_code in [200, 500, 503]
     
     def test_admin_endpoints_require_auth(self, test_client):

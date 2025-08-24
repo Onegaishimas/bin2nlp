@@ -130,7 +130,7 @@ class TestAdminMonitoring:
         if response.status_code == 200:
             data = response.json()
             # Validate expected stats structure
-            expected_sections = ["redis_stats", "system_health"]
+            expected_sections = ["database_stats", "system_health"]
             for section in expected_sections:
                 if section in data:
                     assert isinstance(data[section], dict)

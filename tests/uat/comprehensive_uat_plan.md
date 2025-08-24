@@ -41,7 +41,7 @@ tests/uat/
 
 ### Test Environment Requirements
 - **API Server**: Running at http://localhost:8000
-- **Redis**: Available for cache/queue operations
+- **File Storage**: Available for cache/queue operations
 - **Test Data**: Sample binaries of various sizes and formats
 - **Authentication**: Development API keys for testing
 - **Network**: Stable connection for LLM provider health checks
@@ -73,7 +73,7 @@ def test_health_basic():
     
     # Component health validation
     components = data["components"]
-    assert "redis" in components
+    assert "file_storage" in components
     assert "decompilation_engine" in components
     
     # Performance validation
@@ -87,7 +87,7 @@ def test_health_basic():
   "timestamp": "2025-01-01T00:00:00Z",
   "version": "1.0.0",
   "components": {
-    "redis": {"status": "healthy", "response_time_ms": 5},
+    "file_storage": {"status": "healthy", "response_time_ms": 5},
     "decompilation_engine": {"status": "healthy", "version": "r2-5.8.0"},
     "llm_providers": {"openai": "healthy", "anthropic": "healthy"}
   },
@@ -108,8 +108,8 @@ def test_readiness_when_ready():
 
 def test_readiness_when_not_ready():
     """Test readiness endpoint when dependencies unavailable"""
-    # Simulate Redis unavailability
-    with mock_redis_down():
+    # Simulate file storage unavailability
+    with mock_file_storage_down():
         response = client.get("/api/v1/health/ready")
         assert response.status_code == 503
 ```
@@ -767,15 +767,15 @@ def test_get_system_stats(admin_headers):
     assert response.status_code == 200
     
     data = response.json()
-    assert "redis_stats" in data
+    assert "storage_stats" in data
     assert "rate_limit_stats" in data  
     assert "api_key_stats" in data
     assert "system_health" in data
     
-    # Validate Redis stats structure
-    redis_stats = data["redis_stats"]
-    assert "connected_clients" in redis_stats
-    assert "used_memory" in redis_stats
+    # Validate storage stats structure
+    storage_stats = data["storage_stats"]
+    assert "active_connections" in storage_stats
+    assert "disk_usage" in storage_stats
     
     # Validate API key stats
     api_key_stats = data["api_key_stats"]

@@ -23,7 +23,7 @@ from ...core.dashboards import (
     get_alert_manager, get_dashboard_generator, run_alert_checks, generate_prometheus_metrics
 )
 from ...database.connection import get_database
-from ...database.operations import DatabaseOperations
+# DatabaseOperations not needed - using direct database connection
 from ..middleware import (
     require_auth,
     require_permission,
@@ -257,7 +257,6 @@ async def get_system_stats(
     """
     try:
         db = await get_database()
-        db_ops = DatabaseOperations()
         
         # Database statistics
         db_stats_query = """

@@ -19,7 +19,7 @@ from ..core.exceptions import CacheException
 from ..core.logging import get_logger
 from ..core.utils import validate_binary_file_content, detect_file_format
 from ..models.shared.enums import FileFormat
-from ..storage.base import get_file_storage
+from ..storage.file_storage import get_file_storage
 
 
 class SessionStatus(str, Enum):

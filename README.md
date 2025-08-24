@@ -31,7 +31,7 @@
 
 ### 🚀 Production-Ready Architecture
 - **FastAPI** with automatic OpenAPI documentation
-- **Redis caching** with configurable TTL
+- **File-based caching** with configurable TTL
 - **Async processing** with background job queues
 - **Docker containerization** for scalable deployment
 - **Comprehensive testing** including real LLM integration
@@ -47,7 +47,7 @@
 ### Prerequisites
 - Python 3.11+
 - Docker and Docker Compose
-- Redis (included in Docker setup)
+- PostgreSQL (included in Docker setup)
 - API keys for desired LLM providers
 
 ### Installation
@@ -73,7 +73,7 @@ cp .env.example .env
 
 4. **Start services**
 ```bash
-docker-compose up -d  # Start Redis and other services
+docker-compose up -d  # Start PostgreSQL and other services
 uvicorn src.api.main:app --host 0.0.0.0 --port 8000
 ```
 
@@ -196,7 +196,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=huihui_ai/phi4-abliterated
 
 # System Configuration
-REDIS_URL=redis://localhost:6379
+DATABASE_URL=postgresql://bin2nlp:bin2nlp_password@localhost:5432/bin2nlp
 MAX_FILE_SIZE_MB=100
 ANALYSIS_TIMEOUT_SECONDS=1800
 LOG_LEVEL=INFO
@@ -269,11 +269,11 @@ services:
       dockerfile: Dockerfile.api
     environment:
       - ENVIRONMENT=production
-      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://bin2nlp:bin2nlp_password@database:5432/bin2nlp
     ports:
       - "8000:8000"
     depends_on:
-      - redis
+      - database
       - decompiler-worker
     restart: unless-stopped
 
@@ -282,17 +282,21 @@ services:
       context: .
       dockerfile: Dockerfile.worker
     environment:
-      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://bin2nlp:bin2nlp_password@database:5432/bin2nlp
     depends_on:
-      - redis
+      - database
     restart: unless-stopped
     deploy:
       replicas: 3
 
-  redis:
-    image: redis:7-alpine
+  database:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: bin2nlp
+      POSTGRES_USER: bin2nlp
+      POSTGRES_PASSWORD: bin2nlp_password
     volumes:
-      - redis-data:/data
+      - postgres-data:/var/lib/postgresql/data
     restart: unless-stopped
 ```
 
@@ -404,7 +408,7 @@ uvicorn src.api.main:app --reload --log-level debug
 ### Data Privacy
 - **No persistent storage** of binary files
 - **Temporary file cleanup** after processing
-- **Redis TTL** ensures automatic data expiration
+- **File storage TTL** ensures automatic data expiration
 - **Optional local LLM** support via Ollama
 
 ### LLM Provider Security
