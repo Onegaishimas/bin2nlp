@@ -66,33 +66,36 @@ src/
 ├── decompilation/    # Binary decompilation engine (radare2 integration)
 ├── llm/             # Multi-provider LLM integration (OpenAI, Anthropic, Gemini)
 ├── models/          # Pydantic data models and schemas
-├── cache/           # Redis integration and caching logic
+├── database/        # PostgreSQL integration and atomic operations
+├── cache/           # Hybrid storage layer (PostgreSQL + File Storage)
+├── storage/         # File-based storage for large payloads
 └── core/            # Shared utilities, config, and exceptions
 ```
 
 ### Database & Data Strategy
 
-**Primary Storage: Redis Only**
+**Primary Storage: PostgreSQL + File Storage Hybrid**
 
 **Rationale:**
-- **Cache-First Design**: Decompilation and translation results are temporary, no persistent storage needed
-- **Performance**: In-memory operations for fast result retrieval
-- **Simplicity**: Minimal setup complexity, perfect for containerized deployment
-- **Automatic Cleanup**: TTL-based expiration prevents storage bloat
-- **Security Compliance**: No persistent storage of potentially sensitive binaries
+- **ACID Transactions**: PostgreSQL provides atomic operations for job queue, rate limiting, and session management
+- **Hybrid Performance**: Metadata in database for consistency, large payloads in files for performance
+- **Data Integrity**: Referential integrity and transactional guarantees for critical operations
+- **Scalability**: Database connection pooling and file system caching for optimal performance
+- **Operational Excellence**: Advanced monitoring, backup strategies, and operational tooling
 
 **Data Patterns:**
-- Decompilation results cached with configurable TTL (1-24 hours), shared across users
-- LLM translation results cached separately with user-specific preferences
-- Job status tracking for long-running decompilation and translation operations
-- Rate limiting and request throttling data including LLM provider quotas
-- Session-based temporary file tracking
-- LLM provider usage statistics and cost tracking
+- **Metadata Storage (PostgreSQL)**: Job status, API keys, rate limits, cache metadata, session tracking
+- **Large Payload Storage (File System)**: Decompilation results, LLM translation outputs, binary analysis data
+- **Atomic Operations**: Database stored procedures for job queue operations and rate limiting
+- **TTL Management**: Database-managed expiration with automatic cleanup procedures
+- **Performance Optimization**: Hot data in database, cold data in files with intelligent caching
 
-**Redis Configuration:**
-- LRU eviction policy for memory management
-- Persistence disabled for security (no disk writes)
-- JSON serialization for complex decompilation and translation result objects
+**PostgreSQL Configuration:**
+- Connection pooling with asyncpg for high-performance async operations
+- Custom enums for job status, user tiers, and system states
+- Stored procedures for atomic job queue and rate limiting operations
+- Indexes on frequently queried columns (user_id, expires_at, status)
+- Automatic cleanup procedures for expired data and file system synchronization
 
 ### Infrastructure & Deployment
 
@@ -114,7 +117,8 @@ src/
 │   ├── Dockerfile
 │   ├── radare2 installation
 │   └── decompilation dependencies
-├── redis-container/        # Redis cache service (decompilation + translation caching)
+├── database-container/     # PostgreSQL database service (metadata + atomic operations)
+├── storage-container/      # File storage management service (large payloads)
 └── docker-compose.yml     # Multi-container orchestration
 ```
 
@@ -147,7 +151,9 @@ bin2nlp/
 │   │   ├── decompilation/ # Decompilation result models
 │   │   ├── translation/   # LLM translation models
 │   │   └── config/        # Configuration models
-│   ├── cache/              # Redis integration
+│   ├── database/           # PostgreSQL integration and atomic operations
+│   ├── cache/              # Hybrid storage layer (PostgreSQL + File Storage)
+│   ├── storage/            # File-based storage for large payloads
 │   ├── core/               # Shared utilities
 │   └── tests/              # Test organization mirrors src/
 ├── containers/             # Docker configurations
@@ -170,7 +176,8 @@ from typing import Optional, List
 
 # Third-party imports
 from fastapi import FastAPI, HTTPException
-import redis
+import databases
+import asyncpg
 import r2pipe
 
 # Local application imports
@@ -259,7 +266,7 @@ async def some_service_function():
     settings = get_settings()
     
     # Access hierarchical settings
-    redis_url = settings.database.url
+    database_url = settings.database.url
     max_file_size = settings.decompilation.max_file_size_mb
     api_timeout = settings.api.request_timeout
     
@@ -275,7 +282,8 @@ async def some_service_function():
 async def decompile_binary(
     request: DecompilationRequest,  # Must be Pydantic model
     background_tasks: BackgroundTasks,
-    cache: Redis = Depends(get_redis),
+    database: databases.Database = Depends(get_database),
+    storage: FileStorageClient = Depends(get_storage),
     llm_service: LLMService = Depends(get_llm_service)
 ) -> DecompilationResponse:  # Must be Pydantic model
     """Decompile binary file and translate to natural language."""
@@ -307,7 +315,7 @@ async def decompilation_exception_handler(request: Request, exc: BinaryDecompila
 ```
 
 **Async Patterns:**
-- Use `async/await` for all I/O operations (file processing, Redis, multi-provider LLM calls)
+- Use `async/await` for all I/O operations (file processing, PostgreSQL, file storage, multi-provider LLM calls)
 - Background tasks for long-running decompilation and translation operations
 - Proper resource cleanup with context managers
 - Concurrent processing: decompilation and LLM translation can run in parallel where possible
@@ -316,7 +324,7 @@ async def decompilation_exception_handler(request: Request, exc: BinaryDecompila
 
 **Testing Coverage Expectations:**
 - **Unit Tests**: 85% coverage minimum for core business logic
-- **Integration Tests**: All external service integrations (radare2, LLM providers, Redis)
+- **Integration Tests**: All external service integrations (radare2, LLM providers, PostgreSQL, File Storage)
 - **API Tests**: All endpoints with various input scenarios including LLM provider configurations
 - **Performance Tests**: Decompilation and translation time benchmarks for different file sizes
 
@@ -359,14 +367,14 @@ async def decompilation_exception_handler(request: Request, exc: BinaryDecompila
 **Data Protection:**
 - No logging of binary file contents or sensitive analysis details
 - Temporary file cleanup after analysis completion
-- Redis configured without persistence to prevent data leakage
+- PostgreSQL with secure configuration and automatic data cleanup procedures
 
 ### Scalability Considerations
 
 **Horizontal Scaling Design:**
 - Stateless API servers enable load balancing
 - Independent analysis workers can scale based on demand
-- Redis clustering support for high-availability caching
+- PostgreSQL connection pooling with file storage redundancy for high-availability
 
 **Performance Optimization:**
 - Async processing prevents blocking operations
@@ -387,7 +395,9 @@ async def decompilation_exception_handler(request: Request, exc: BinaryDecompila
 - `uvicorn[standard]>=0.24.0`: ASGI server with performance optimizations
 - `pydantic>=2.5.0`: Data validation and serialization (STANDARDIZED)
 - `pydantic-settings>=2.1.0`: Environment configuration management (STANDARDIZED)
-- `redis>=5.0.0`: Cache and session storage with async support
+- `asyncpg>=0.28.0`: PostgreSQL async driver for database operations
+- `databases[postgresql]>=0.7.0`: Database abstraction layer with connection pooling
+- `sqlalchemy>=2.0.0`: Database ORM for schema management and migrations
 - `r2pipe>=1.8.0`: radare2 Python integration for binary decompilation
 - `httpx>=0.25.0`: Async HTTP client for multi-provider LLM integration
 
@@ -461,7 +471,8 @@ class DecompilationRequest(BaseModel):
     
 # All configuration uses pydantic-settings
 class Settings(BaseSettings):
-    redis_url: str = Field(..., env="REDIS_URL")
+    database_url: str = Field(..., env="DATABASE_URL")
+    storage_root: str = Field(..., env="STORAGE_ROOT")
     model_config = SettingsConfigDict(env_file=".env")
 ```
 
@@ -684,8 +695,8 @@ async def with_provider_retry(operation_func):
 class LLMUsageTracker:
     """Centralized tracking of LLM provider usage and costs."""
     
-    def __init__(self, redis_client: Redis):
-        self.redis = redis_client
+    def __init__(self, database: databases.Database):
+        self.database = database
     
     async def track_request(
         self, 
@@ -698,22 +709,23 @@ class LLMUsageTracker:
         """Track LLM provider usage with cost accounting."""
         timestamp = datetime.utcnow()
         
-        # Daily tracking
-        daily_key = f"llm_usage:daily:{user_id}:{provider_id}:{timestamp.strftime('%Y-%m-%d')}"
-        await self.redis.hincrby(daily_key, "tokens", tokens_used)
-        await self.redis.hincrby(daily_key, "requests", 1)
-        await self.redis.hincrbyfloat(daily_key, "cost", cost)
-        await self.redis.expire(daily_key, 86400 * 7)  # Keep for 7 days
-        
-        # Monthly tracking
-        monthly_key = f"llm_usage:monthly:{user_id}:{provider_id}:{timestamp.strftime('%Y-%m')}"
-        await self.redis.hincrbyfloat(monthly_key, "cost", cost)
-        await self.redis.expire(monthly_key, 86400 * 35)  # Keep for 35 days
-        
-        # Operation type breakdown
-        op_key = f"llm_usage:operations:{user_id}:{provider_id}:{operation_type}"
-        await self.redis.hincrbyfloat(op_key, "cost", cost)
-        await self.redis.hincrby(op_key, "count", 1)
+        # Daily tracking using PostgreSQL atomic operations
+        await self.database.execute("""
+            INSERT INTO llm_usage (user_id, provider_id, usage_date, tokens_used, requests_count, cost, operation_type)
+            VALUES (:user_id, :provider_id, :usage_date, :tokens_used, 1, :cost, :operation_type)
+            ON CONFLICT (user_id, provider_id, usage_date, operation_type)
+            DO UPDATE SET
+                tokens_used = llm_usage.tokens_used + EXCLUDED.tokens_used,
+                requests_count = llm_usage.requests_count + 1,
+                cost = llm_usage.cost + EXCLUDED.cost
+        """, {
+            "user_id": user_id,
+            "provider_id": provider_id, 
+            "usage_date": timestamp.date(),
+            "tokens_used": tokens_used,
+            "cost": cost,
+            "operation_type": operation_type
+        })
     
     async def check_cost_limits(
         self, 
@@ -726,15 +738,30 @@ class LLMUsageTracker:
         today = datetime.utcnow().strftime('%Y-%m-%d')
         month = datetime.utcnow().strftime('%Y-%m')
         
-        # Check daily limit
-        daily_key = f"llm_usage:daily:{user_id}:{provider_id}:{today}"
-        daily_cost = float(await self.redis.hget(daily_key, "cost") or 0)
+        # Check daily limit using PostgreSQL aggregation
+        daily_cost = await self.database.fetch_val("""
+            SELECT COALESCE(SUM(cost), 0) 
+            FROM llm_usage 
+            WHERE user_id = :user_id AND provider_id = :provider_id 
+            AND usage_date = :today
+        """, {"user_id": user_id, "provider_id": provider_id, "today": today}) or 0
+        
         if daily_cost + estimated_cost > config.daily_spend_limit:
             raise LLMCostLimitException(provider_id, estimated_cost, config.daily_spend_limit)
         
-        # Check monthly limit
-        monthly_key = f"llm_usage:monthly:{user_id}:{provider_id}:{month}"
-        monthly_cost = float(await self.redis.hget(monthly_key, "cost") or 0)
+        # Check monthly limit using PostgreSQL date range query
+        monthly_cost = await self.database.fetch_val("""
+            SELECT COALESCE(SUM(cost), 0) 
+            FROM llm_usage 
+            WHERE user_id = :user_id AND provider_id = :provider_id 
+            AND usage_date >= :month_start AND usage_date < :month_end
+        """, {
+            "user_id": user_id, 
+            "provider_id": provider_id,
+            "month_start": today.replace(day=1),
+            "month_end": (today.replace(day=1) + timedelta(days=32)).replace(day=1)
+        }) or 0
+        
         if monthly_cost + estimated_cost > config.monthly_spend_limit:
             raise LLMCostLimitException(provider_id, estimated_cost, config.monthly_spend_limit)
         
@@ -907,8 +934,8 @@ Provide a comprehensive explanation in 2-4 paragraphs that explains what this fu
 class PromptManager:
     """Centralized management of translation prompts with versioning."""
     
-    def __init__(self, redis_client: Redis):
-        self.redis = redis_client
+    def __init__(self, database: databases.Database):
+        self.database = database
         self.templates: Dict[str, TranslationPromptTemplate] = {}
         self._load_default_templates()
     
@@ -972,26 +999,35 @@ class PromptManager:
         provider_id: str = None
     ):
         """Track prompt performance for optimization."""
-        metrics_key = f"prompt_metrics:{template_id}"
+        # Track prompt metrics using PostgreSQL atomic operations
+        await self.database.execute("""
+            INSERT INTO prompt_metrics (
+                template_id, provider_id, total_uses, successes, 
+                quality_score, execution_time, recorded_at
+            )
+            VALUES (:template_id, :provider_id, 1, :success_count, :quality_score, :execution_time, NOW())
+        """, {
+            "template_id": template_id,
+            "provider_id": provider_id,
+            "success_count": 1 if success else 0,
+            "quality_score": quality_score,
+            "execution_time": execution_time
+        })
         
-        await self.redis.hincrby(metrics_key, "total_uses", 1)
-        if success:
-            await self.redis.hincrby(metrics_key, "successes", 1)
-        
-        if quality_score is not None:
-            await self.redis.lpush(f"{metrics_key}:quality_scores", quality_score)
-            await self.redis.ltrim(f"{metrics_key}:quality_scores", 0, 99)  # Keep last 100
-        
-        if execution_time is not None:
-            await self.redis.lpush(f"{metrics_key}:execution_times", execution_time)
-            await self.redis.ltrim(f"{metrics_key}:execution_times", 0, 99)
-        
-        # Provider-specific tracking
-        if provider_id:
-            provider_key = f"prompt_metrics:{template_id}:provider:{provider_id}"
-            await self.redis.hincrby(provider_key, "uses", 1)
-            if success:
-                await self.redis.hincrby(provider_key, "successes", 1)
+        # Update aggregated statistics
+        await self.database.execute("""
+            INSERT INTO prompt_stats (template_id, provider_id, total_uses, successes, updated_at)
+            VALUES (:template_id, :provider_id, 1, :success_count, NOW())
+            ON CONFLICT (template_id, provider_id)
+            DO UPDATE SET
+                total_uses = prompt_stats.total_uses + 1,
+                successes = prompt_stats.successes + EXCLUDED.successes,
+                updated_at = NOW()
+        """, {
+            "template_id": template_id,
+            "provider_id": provider_id,
+            "success_count": 1 if success else 0
+        })
 ```
 
 *3. Quality Assessment Integration:*
@@ -1598,7 +1634,8 @@ pre-commit install
 ```bash
 # .env file for local development
 ENVIRONMENT=development
-REDIS_URL=redis://localhost:6379
+DATABASE_URL=postgresql://bin2nlp:bin2nlp_password@localhost:5432/bin2nlp
+STORAGE_ROOT=/app/storage
 OLLAMA_BASE_URL=http://localhost:11434
 LOG_LEVEL=DEBUG
 MAX_FILE_SIZE_MB=100
@@ -1610,9 +1647,13 @@ ANALYSIS_TIMEOUT_SECONDS=1200
 # docker-compose.dev.yml
 version: '3.8'
 services:
-  redis:
-    image: redis:7-alpine
-    ports: ["6379:6379"]
+  database:
+    image: postgres:15-alpine
+    ports: ["5432:5432"]
+    environment:
+      POSTGRES_DB: bin2nlp
+      POSTGRES_USER: bin2nlp
+      POSTGRES_PASSWORD: bin2nlp_password
   
   ollama:
     image: ollama/ollama
@@ -1729,7 +1770,8 @@ async def process_uploaded_file(file: UploadFile) -> str:
 **Resource Usage:**
 - API container: 512MB RAM, 0.5 CPU
 - Analysis worker: 2GB RAM, 2 CPU
-- Redis cache: 256MB RAM
+- PostgreSQL database: 1GB RAM
+- File storage: 512MB cache
 - Total system: < 4GB RAM, < 4 CPU cores
 
 ### Optimization Strategies
@@ -1737,16 +1779,17 @@ async def process_uploaded_file(file: UploadFile) -> str:
 **Caching Implementation:**
 ```python
 # Analysis result caching
-@cache_result(ttl=3600)  # 1 hour cache
+@cache_result(ttl_seconds=3600)  # 1 hour cache
 async def get_analysis_result(file_hash: str, depth: AnalysisDepth) -> AnalysisResult:
-    """Get cached analysis result or compute new one."""
+    """Get cached analysis result from hybrid storage or compute new one."""
     # Implementation
 ```
 
 **Async Processing:**
 - Background task queues for long-running analysis
 - Streaming responses for large analysis results
-- Connection pooling for Redis and external services
+- Connection pooling for PostgreSQL database and external services
+- File storage caching and cleanup procedures
 
 **Resource Management:**
 - Lazy loading of analysis modules
@@ -1762,10 +1805,10 @@ async def get_analysis_result(file_hash: str, depth: AnalysisDepth) -> AnalysisR
 - **Rejected**: Flask (manual API docs), Django (heavyweight for API-only service)
 - **Risk**: Newer ecosystem, but strong community and documentation
 
-**Redis-Only vs Database + Cache:**
-- **Chosen**: Redis-only for simplicity and security (no persistent storage)
-- **Rejected**: PostgreSQL/SQLite for prototype complexity
-- **Risk**: Limited query capabilities, but sufficient for cache-first design
+**PostgreSQL + File Storage vs Pure Database:**
+- **Chosen**: Hybrid PostgreSQL + File Storage for optimal performance and data integrity
+- **Rationale**: ACID transactions for metadata, file storage for large payloads
+- **Benefits**: Atomic operations, referential integrity, excellent query capabilities, performance scaling
 
 **Multi-Container vs Single Container:**
 - **Chosen**: Multi-container for isolation and independent scaling

@@ -17,7 +17,7 @@ This task list **originally** implemented the Phase 1 Integrated System as defin
 - **Implementation Guide:** `001_FTID|Phase1_Integrated_System.md` *(DEPRECATED)*
 
 **Original Strategy:** ~~Feature-vertical slicing with bottom-up layer construction~~ **REPLACED WITH:**  
-**Current Strategy:** Decompilation → LLM Translation → Structured Response (FastAPI, Redis caching, radare2 + multi-LLM provider integration)
+**Current Strategy:** Decompilation → LLM Translation → Structured Response (FastAPI, PostgreSQL + File Storage hybrid, radare2 + multi-LLM provider integration)
 
 ## Relevant Files
 
@@ -33,11 +33,13 @@ This task list **originally** implemented the Phase 1 Integrated System as defin
 - `src/core/exceptions.py` - Custom exception hierarchy for error handling (implemented)
 - `src/core/utils.py` - File validation, hash generation, sanitization functions (implemented with Magika integration)
 - `src/core/logging.py` - Structured logging configuration
-- `src/cache/base.py` - Redis connection management and base cache operations (implemented)
-- `src/cache/job_queue.py` - Job queue implementation with Redis backend (implemented)
-- `src/cache/result_cache.py` - Analysis result caching with TTL management (implemented)
-- `src/cache/rate_limiter.py` - API rate limiting implementation (implemented)
-- `src/cache/session.py` - Session and temporary data management (implemented with Magika validation)
+- `src/database/connection.py` - PostgreSQL connection management and health checks (implemented)
+- `src/database/operations.py` - Hybrid database and file storage operations layer (implemented) 
+- `src/cache/base.py` - File storage client with compatibility interfaces (implemented)
+- `src/cache/job_queue.py` - Job queue implementation with PostgreSQL backend (implemented)
+- `src/cache/result_cache.py` - Result caching with hybrid storage and TTL management (implemented)
+- `src/cache/rate_limiter.py` - Rate limiting with PostgreSQL atomic operations (implemented)
+- `src/cache/session.py` - Session management with database backend (implemented)
 - `src/analysis/engines/base.py` - Abstract analysis engine interface
 - `src/analysis/engines/radare2.py` - radare2 integration and binary analysis implementation
 - `src/analysis/engines/file_parser.py` - File format detection and validation

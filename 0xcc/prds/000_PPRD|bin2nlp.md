@@ -35,7 +35,7 @@ Organizations and developers need structured, human-readable data about binary f
 4. **Platform Foundation:** Build multi-LLM translation service suitable for early customer feedback and future commercialization
 
 ### Secondary Objectives
-- Establish technical architecture supporting multi-tenant future deployment with multiple LLM providers
+- Establish PostgreSQL + File Storage hybrid architecture supporting multi-tenant future deployment with multiple LLM providers
 - Create reusable decompilation and translation framework extensible to additional binary formats
 - Build knowledge base of effective assembly-to-natural-language translation patterns across different LLM models
 - Develop performance benchmarks for translation quality and processing speed across binary types and sizes
@@ -63,7 +63,7 @@ Organizations and developers need structured, human-readable data about binary f
 - radare2 integration and binary format support
 - Multi-LLM provider framework with unified interface (OpenAI API compatible, Anthropic Claude, Google Gemini, Ollama)
 - Provider selection, fallback, and cost management systems
-- Initial API structure and containerization
+- Initial API structure and containerization with PostgreSQL database backend
 
 **Phase 2 (Weeks 3-4): Multi-LLM Translation Engine**
 - Rich natural language translation implementation across all LLM providers
@@ -126,7 +126,7 @@ Organizations and developers need structured, human-readable data about binary f
   - Google Gemini API integration
 - Configurable translation depth (quick overview, standard translation, comprehensive analysis)
 - RESTful API interface with structured datasets combining assembly code and natural language explanations
-- Containerized deployment architecture with LLM provider abstraction
+- Containerized deployment architecture with PostgreSQL database, file storage, and LLM provider abstraction
 - Rich, structured output optimized for external analysis tool consumption
 
 **File Format Support:**
@@ -213,11 +213,11 @@ Organizations and developers need structured, human-readable data about binary f
 
 **Security:**
 - Sandboxed binary execution environment
-- No persistent storage of uploaded binary files
+- Secure metadata storage in PostgreSQL with temporary file processing - no long-term binary file retention
 - Secure handling of potentially malicious code samples
 
 ### Compliance and Regulatory Considerations
-- **Data Privacy:** No persistent storage of customer binary files
+- **Data Privacy:** Structured metadata storage in PostgreSQL with secure temporary file processing - no long-term binary file retention
 - **Security:** Isolated analysis environment preventing malware escape
 - **Audit Trail:** Logging of analysis requests and system performance metrics
 
@@ -375,12 +375,12 @@ Organizations and developers need structured, human-readable data about binary f
 
 ### Security and Privacy Requirements
 - **Sandboxed Execution:** All binary analysis occurs in isolated container environment
-- **No Persistent Storage:** Uploaded binaries are processed and immediately discarded
+- **Secure Processing:** Uploaded binaries are processed with metadata stored in PostgreSQL database, files discarded after processing
 - **Secure Analysis:** Protection against malicious binaries affecting host system
-- **Privacy Protection:** No data retention or analysis result storage
+- **Privacy Protection:** Metadata and job tracking in secure PostgreSQL database, no binary file retention
 
 ### Performance and Scalability Needs
-- **Horizontal Scaling:** Stateless API design enables multiple container instances
+- **Horizontal Scaling:** Stateless API design with shared PostgreSQL database enables multiple container instances
 - **Resource Isolation:** Each analysis job runs in isolated environment
 - **Performance Monitoring:** Built-in metrics for optimization and capacity planning
 - **Efficient Resource Usage:** Optimized container resource allocation
@@ -460,7 +460,7 @@ Organizations and developers need structured, human-readable data about binary f
 
 ### Architecture and Tech Stack Evaluation Needs
 - **Python Framework Selection:** Choose API framework (FastAPI, Flask, Django) based on performance and simplicity requirements
-- **Container Strategy:** Define Docker setup, dependencies, and deployment approach
+- **Container Strategy:** Define Docker setup with PostgreSQL database, file storage, and deployment approach
 - **radare2 Integration Method:** Determine Python bindings vs subprocess approach
 - **Ollama Integration Pattern:** Design LLM communication and prompt management strategy
 - **Testing Strategy:** Define testing approaches for binary analysis accuracy and performance
