@@ -13,11 +13,23 @@ from .results import (
     StringTranslation,
     OverallSummary
 )
+from .basic_results import (
+    BasicDecompilationResult, 
+    DecompilationMetadata,
+    BasicFunctionInfo, 
+    BasicStringInfo, 
+    BasicImportInfo
+)
 
 __all__ = [
     'DecompilationResult',
     'FunctionTranslation',
     'ImportTranslation', 
     'StringTranslation',
-    'OverallSummary'
+    'OverallSummary',
+    'BasicDecompilationResult', 
+    'DecompilationMetadata',
+    'BasicFunctionInfo', 
+    'BasicStringInfo', 
+    'BasicImportInfo'
 ]

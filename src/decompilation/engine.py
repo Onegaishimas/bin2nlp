@@ -20,7 +20,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from ..models.shared.enums import FileFormat, Platform
-from ..models.analysis.basic_results import (
+from ..models.decompilation.basic_results import (
     BasicDecompilationResult, DecompilationMetadata,
     BasicFunctionInfo, BasicStringInfo, BasicImportInfo
 )

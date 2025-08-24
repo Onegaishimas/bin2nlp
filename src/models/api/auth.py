@@ -13,7 +13,7 @@ from pydantic import Field, field_validator, computed_field, ConfigDict
 from typing_extensions import Annotated
 
 from ..shared.base import BaseModel
-from ..analysis.serialization import AnalysisModelMixin, validate_string_list
+from ..shared.serialization import AnalysisModelMixin, validate_string_list
 
 
 class APIKeyRequest(BaseModel, AnalysisModelMixin):

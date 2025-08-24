@@ -14,7 +14,7 @@ from typing_extensions import Annotated
 
 from ..shared.base import BaseModel
 from ..shared.enums import JobStatus, AnalysisDepth, AnalysisFocus, Platform, FileFormat
-from ..analysis.serialization import AnalysisModelMixin, validate_string_list
+from ..shared.serialization import AnalysisModelMixin, validate_string_list
 
 
 class JobCreationRequest(BaseModel, AnalysisModelMixin):
