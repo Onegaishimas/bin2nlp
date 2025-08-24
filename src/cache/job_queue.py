@@ -9,7 +9,6 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 import uuid
 
-from ..database.operations import JobQueue as DatabaseJobQueue
 from ..database.models import JobPriority
 from ..models.shared.enums import JobStatus
 from ..core.logging import get_logger
@@ -136,6 +135,8 @@ class JobQueue:
     
     def __init__(self):
         """Initialize job queue with database backend."""
+        # Delayed import to avoid circular dependency
+        from ..database.operations import JobQueue as DatabaseJobQueue
         self.db_queue = DatabaseJobQueue()
         self.logger = get_logger(__name__)
         

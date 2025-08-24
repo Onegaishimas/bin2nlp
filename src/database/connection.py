@@ -32,11 +32,11 @@ def get_database_url(settings: Optional[Settings] = None) -> str:
         settings = get_settings()
     
     # Get database configuration from environment
-    db_host = getattr(settings, 'database_host', 'localhost')
-    db_port = getattr(settings, 'database_port', 5432)
-    db_name = getattr(settings, 'database_name', 'bin2nlp')
-    db_user = getattr(settings, 'database_user', 'bin2nlp')
-    db_password = getattr(settings, 'database_password', '')
+    db_host = settings.database.host
+    db_port = settings.database.port
+    db_name = settings.database.name
+    db_user = settings.database.user
+    db_password = settings.database.password
     
     # Build connection URL
     if db_password:
