@@ -18,79 +18,78 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class DatabaseSettings(BaseSettings):
-    """Redis database configuration settings."""
+    """PostgreSQL database configuration settings."""
     
     model_config = SettingsConfigDict(
-        env_prefix="REDIS_",
+        env_prefix="DATABASE_",
         case_sensitive=False
     )
     
     host: str = Field(
         default="localhost",
-        description="Redis server hostname"
+        description="PostgreSQL server hostname"
     )
     
     port: int = Field(
-        default=6379,
+        default=5432,
         ge=1,
         le=65535,
-        description="Redis server port"
+        description="PostgreSQL server port"
     )
     
-    db: int = Field(
-        default=0,
-        ge=0,
-        le=15,
-        description="Redis database number"
+    name: str = Field(
+        default="bin2nlp",
+        description="PostgreSQL database name"
     )
     
-    password: Optional[str] = Field(
-        default=None,
-        description="Redis authentication password"
+    user: str = Field(
+        default="bin2nlp",
+        description="PostgreSQL database user"
     )
     
-    username: Optional[str] = Field(
-        default=None,
-        description="Redis authentication username"
+    password: str = Field(
+        default="bin2nlp_password",
+        description="PostgreSQL authentication password"
     )
     
-    max_connections: int = Field(
-        default=20,
+    echo: bool = Field(
+        default=False,
+        description="Enable SQL query logging"
+    )
+    
+    pool_size: int = Field(
+        default=10,
         ge=1,
         le=100,
-        description="Maximum connection pool size"
+        description="Connection pool size"
     )
     
-    socket_connect_timeout: float = Field(
-        default=5.0,
-        ge=0.1,
-        le=60.0,
-        description="Socket connection timeout in seconds"
+    max_overflow: int = Field(
+        default=20,
+        ge=0,
+        le=100,
+        description="Maximum pool overflow connections"
     )
     
-    socket_keepalive: bool = Field(
-        default=True,
-        description="Enable TCP keepalive"
-    )
-    
-    health_check_interval: int = Field(
+    pool_timeout: int = Field(
         default=30,
-        ge=5,
+        ge=1,
         le=300,
-        description="Health check interval in seconds"
+        description="Pool connection timeout in seconds"
+    )
+    
+    pool_recycle: int = Field(
+        default=3600,
+        ge=300,
+        le=86400,
+        description="Connection recycle time in seconds"
     )
     
     @computed_field
     @property
     def url(self) -> str:
-        """Construct Redis connection URL."""
-        auth_part = ""
-        if self.username and self.password:
-            auth_part = f"{self.username}:{self.password}@"
-        elif self.password:
-            auth_part = f":{self.password}@"
-        
-        return f"redis://{auth_part}{self.host}:{self.port}/{self.db}"
+        """Construct PostgreSQL connection URL."""
+        return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}"
 
 
 class AnalysisSettings(BaseSettings):
@@ -307,53 +306,54 @@ class SecuritySettings(BaseSettings):
     )
 
 
-class CacheSettings(BaseSettings):
-    """Cache configuration settings."""
+class StorageSettings(BaseSettings):
+    """File storage configuration settings."""
     
     model_config = SettingsConfigDict(
-        env_prefix="CACHE_",
+        env_prefix="STORAGE_",
         case_sensitive=False
     )
     
-    default_ttl_seconds: int = Field(
-        default=3600,
-        ge=60,
-        le=86400,
-        description="Default cache TTL in seconds"
+    base_path: Path = Field(
+        default=Path("/var/lib/app/data"),
+        description="Base path for file storage"
     )
     
-    analysis_result_ttl_seconds: int = Field(
-        default=86400,
-        ge=300,
-        le=604800,
-        description="Analysis result cache TTL in seconds"
-    )
-    
-    job_status_ttl_seconds: int = Field(
-        default=300,
-        ge=30,
-        le=3600,
-        description="Job status cache TTL in seconds"
-    )
-    
-    rate_limit_window_seconds: int = Field(
-        default=60,
+    cache_ttl_hours: int = Field(
+        default=24,
         ge=1,
-        le=3600,
-        description="Rate limit window in seconds"
+        le=168,
+        description="File cache TTL in hours"
     )
     
-    max_cache_size_mb: int = Field(
-        default=512,
-        ge=64,
-        le=4096,
-        description="Maximum cache size in MB"
+    max_file_size_mb: int = Field(
+        default=100,
+        ge=1,
+        le=1000,
+        description="Maximum stored file size in MB"
     )
     
     enable_compression: bool = Field(
         default=True,
-        description="Enable cache value compression"
+        description="Enable file compression"
     )
+    
+    cleanup_interval_hours: int = Field(
+        default=6,
+        ge=1,
+        le=24,
+        description="Cleanup interval in hours"
+    )
+    
+    @field_validator('base_path')
+    @classmethod
+    def validate_base_path(cls, v: Union[str, Path]) -> Path:
+        """Validate and create base path if needed."""
+        path = Path(v)
+        path.mkdir(parents=True, exist_ok=True)
+        if not path.is_dir():
+            raise ValueError(f"Storage base path is not accessible: {path}")
+        return path
 
 
 class LoggingSettings(BaseSettings):
@@ -744,9 +744,9 @@ class Settings(BaseSettings):
         description="Security configuration"
     )
     
-    cache: CacheSettings = Field(
-        default_factory=CacheSettings,
-        description="Cache configuration"
+    storage: StorageSettings = Field(
+        default_factory=StorageSettings,
+        description="File storage configuration"
     )
     
     logging: LoggingSettings = Field(
@@ -773,8 +773,8 @@ class Settings(BaseSettings):
     
     @computed_field
     @property
-    def redis_url(self) -> str:
-        """Get Redis connection URL."""
+    def database_url(self) -> str:
+        """Get PostgreSQL connection URL."""
         return self.database.url
     
     @field_validator('environment')
@@ -877,10 +877,10 @@ def validate_settings() -> bool:
     try:
         settings = get_settings()
         
-        # Test Redis connection URL parsing
-        parsed_url = urlparse(settings.redis_url)
+        # Test PostgreSQL connection URL parsing
+        parsed_url = urlparse(settings.database_url)
         if not parsed_url.hostname:
-            raise ValueError("Invalid Redis URL")
+            raise ValueError("Invalid PostgreSQL URL")
         
         # Validate temp directory is writable
         temp_dir = settings.analysis.temp_directory
@@ -921,16 +921,17 @@ APP_VERSION=1.0.0
 ENVIRONMENT=development
 DEBUG=false
 
-# Redis Database Settings
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_DB=0
-REDIS_PASSWORD=
-REDIS_USERNAME=
-REDIS_MAX_CONNECTIONS=20
-REDIS_SOCKET_CONNECT_TIMEOUT=5.0
-REDIS_SOCKET_KEEPALIVE=true
-REDIS_HEALTH_CHECK_INTERVAL=30
+# PostgreSQL Database Settings
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_NAME=bin2nlp
+DATABASE_USER=bin2nlp
+DATABASE_PASSWORD=bin2nlp_password
+DATABASE_ECHO=false
+DATABASE_POOL_SIZE=10
+DATABASE_MAX_OVERFLOW=20
+DATABASE_POOL_TIMEOUT=30
+DATABASE_POOL_RECYCLE=3600
 
 # Analysis Engine Settings
 ANALYSIS_MAX_FILE_SIZE_MB=100
@@ -962,13 +963,12 @@ SECURITY_MAX_API_KEYS_PER_USER=10
 SECURITY_API_KEY_EXPIRY_DAYS=90
 SECURITY_ENFORCE_HTTPS=false
 
-# Cache Settings
-CACHE_DEFAULT_TTL_SECONDS=3600
-CACHE_ANALYSIS_RESULT_TTL_SECONDS=86400
-CACHE_JOB_STATUS_TTL_SECONDS=300
-CACHE_RATE_LIMIT_WINDOW_SECONDS=60
-CACHE_MAX_CACHE_SIZE_MB=512
-CACHE_ENABLE_COMPRESSION=true
+# File Storage Settings
+STORAGE_BASE_PATH=/var/lib/app/data
+STORAGE_CACHE_TTL_HOURS=24
+STORAGE_MAX_FILE_SIZE_MB=100
+STORAGE_ENABLE_COMPRESSION=true
+STORAGE_CLEANUP_INTERVAL_HOURS=6
 
 # Logging Settings
 LOG_LEVEL=INFO
@@ -1022,8 +1022,8 @@ def check_required_environment_variables() -> Tuple[bool, List[str]]:
     env = os.getenv("ENVIRONMENT", "development")
     if env == "production":
         critical_vars = [
-            "REDIS_HOST",
-            "REDIS_PASSWORD",
+            "DATABASE_HOST",
+            "DATABASE_PASSWORD",
             "SECURITY_ENFORCE_HTTPS",
             "LOG_LEVEL"
         ]
@@ -1034,9 +1034,9 @@ def check_required_environment_variables() -> Tuple[bool, List[str]]:
     
     # Check system dependencies
     try:
-        import redis
+        import asyncpg
     except ImportError:
-        missing_items.append("Redis Python client not installed (pip install redis)")
+        missing_items.append("PostgreSQL Python client not installed (pip install asyncpg)")
     
     try:
         import r2pipe
@@ -1083,7 +1083,7 @@ def validate_configuration_consistency() -> Tuple[bool, List[str]]:
         
         # Port validation
         if settings.api.port == settings.database.port:
-            errors.append("API and Redis ports cannot be the same")
+            errors.append("API and PostgreSQL ports cannot be the same")
         
         # Rate limit validation
         rate_limits = settings.get_rate_limits()
@@ -1155,16 +1155,16 @@ def detect_configuration_issues() -> Dict[str, List[str]]:
             )
         
         # Connection pool recommendations
-        if settings.database.max_connections < 10:
+        if settings.database.pool_size < 10:
             issues["recommendations"].append(
-                "Consider increasing Redis connection pool size for better concurrency"
+                "Consider increasing PostgreSQL connection pool size for better concurrency"
             )
         
-        # Cache size recommendations
-        cache_size_gb = settings.cache.max_cache_size_mb / 1024
-        if cache_size_gb < 1:
+        # Storage size recommendations  
+        storage_size_mb = settings.storage.max_file_size_mb
+        if storage_size_mb < 100:
             issues["recommendations"].append(
-                f"Consider increasing cache size (current: {cache_size_gb}GB, recommended: 1GB+)"
+                f"Consider increasing storage file size limit (current: {storage_size_mb}MB, recommended: 100MB+)"
             )
         
         # Development warnings
@@ -1242,11 +1242,11 @@ def create_configuration_report() -> str:
     # Component summary
     report_lines.extend([
         "=== Component Configuration ===",
-        f"Redis: {settings.database.host}:{settings.database.port}",
+        f"PostgreSQL: {settings.database.host}:{settings.database.port}/{settings.database.name}",
         f"API Server: {settings.api.host}:{settings.api.port}",
         f"Worker Memory Limit: {settings.analysis.worker_memory_limit_mb}MB",
         f"Max File Size: {settings.analysis.max_file_size_mb}MB",
-        f"Cache TTL: {settings.cache.analysis_result_ttl_seconds}s",
+        f"Storage TTL: {settings.storage.cache_ttl_hours}h",
         f"Rate Limit: {settings.security.default_rate_limit_per_minute}/min",
         ""
     ])

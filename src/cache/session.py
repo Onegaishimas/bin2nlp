@@ -1,5 +1,5 @@
 """
-Session and temporary data management using Redis.
+Session and temporary data management using PostgreSQL + File Storage.
 
 Provides upload session tracking, temporary file metadata storage,
 pre-signed URL management, and automatic cleanup of expired data.
@@ -19,7 +19,7 @@ from ..core.exceptions import CacheException
 from ..core.logging import get_logger
 from ..core.utils import validate_binary_file_content, detect_file_format
 from ..models.shared.enums import FileFormat
-from .base import RedisClient
+from ..storage.base import get_file_storage
 
 
 class SessionStatus(str, Enum):
@@ -119,11 +119,11 @@ class TempFileMetadata:
 
 class SessionManager:
     """
-    Redis-based session and temporary file management system.
+    PostgreSQL + File Storage session and temporary file management system.
     
     Features:
     - Upload session tracking with pre-signed URLs
-    - Temporary file metadata storage
+    - Temporary file metadata storage in PostgreSQL
     - Automatic expiration and cleanup
     - Session status tracking and progress updates
     - Background cleanup tasks
@@ -131,29 +131,18 @@ class SessionManager:
     - Tag-based file organization
     """
     
-    # Redis key patterns
-    UPLOAD_SESSION_KEY = "session:upload:{session_id}"
-    TEMP_FILE_KEY = "tempfile:{file_id}"
-    USER_SESSIONS_SET = "user:sessions:{api_key_id}"
-    ACTIVE_SESSIONS_SET = "sessions:active"
-    TEMP_FILES_SET = "tempfiles:all"
-    FILE_BY_HASH_KEY = "file:hash:{file_hash}"
-    SESSION_STATS_KEY = "session:stats"
-    
     # Default TTL values (in seconds)
     DEFAULT_UPLOAD_SESSION_TTL = 3600  # 1 hour
     DEFAULT_TEMP_FILE_TTL = 86400  # 24 hours
     MAX_TEMP_FILE_TTL = 604800  # 7 days
     
-    def __init__(self, redis_client: Optional[RedisClient] = None, settings: Optional[Settings] = None):
+    def __init__(self, settings: Optional[Settings] = None):
         """
         Initialize session manager.
         
         Args:
-            redis_client: Redis client instance
             settings: Application settings
         """
-        self.redis_client = redis_client
         self.settings = settings or get_settings()
         self.logger = get_logger(__name__)
         
@@ -165,12 +154,14 @@ class SessionManager:
         # Background cleanup task
         self._cleanup_task: Optional[asyncio.Task] = None
     
-    async def _get_redis(self) -> RedisClient:
-        """Get Redis client instance."""
-        if self.redis_client is None:
-            from .base import get_redis_client
-            self.redis_client = await get_redis_client()
-        return self.redis_client
+    async def _get_database(self):
+        """Get database connection."""
+        from ..database.connection import get_database
+        return await get_database()
+    
+    async def _get_storage(self):
+        """Get file storage client."""
+        return await get_file_storage()
     
     async def create_upload_session(
         self,
@@ -203,7 +194,7 @@ class SessionManager:
             CacheException: If session creation fails
         """
         try:
-            redis = await self._get_redis()
+            db = await self._get_database()
             current_time = time.time()
             
             # Generate session and upload IDs
@@ -213,7 +204,7 @@ class SessionManager:
             # Set defaults
             ttl = ttl_seconds or self.DEFAULT_UPLOAD_SESSION_TTL
             expires_at = current_time + ttl
-            max_size = max_file_size or self.settings.get_max_file_size_bytes()
+            max_size = max_file_size or getattr(self.settings, 'MAX_FILE_SIZE_MB', 100) * 1024 * 1024
             formats = allowed_formats or [FileFormat.PE, FileFormat.ELF, FileFormat.MACHO, FileFormat.RAW]
             
             # Generate pre-signed URL (placeholder - would integrate with storage service)
@@ -240,24 +231,19 @@ class SessionManager:
             if api_key_id:
                 await self._enforce_session_limits(api_key_id)
             
-            # Store session in Redis
-            session_key = self.UPLOAD_SESSION_KEY.format(session_id=session_id)
-            await redis.set(session_key, json.dumps(upload_session.to_dict()), ex=ttl)
-            
-            # Add to active sessions set
-            await redis._client.zadd(
-                self.ACTIVE_SESSIONS_SET,
-                {session_id: expires_at}
-            )
-            
-            # Add to user sessions set if API key provided
-            if api_key_id:
-                user_sessions_key = self.USER_SESSIONS_SET.format(api_key_id=api_key_id)
-                await redis._client.sadd(user_sessions_key, session_id)
-                await redis._client.expire(user_sessions_key, ttl)
-            
-            # Update statistics
-            await self._update_stats("sessions_created")
+            # Store session in PostgreSQL sessions table
+            await db.execute("""
+                INSERT INTO sessions (
+                    id, session_data, api_key_id, expires_at, created_at
+                ) VALUES (
+                    :session_id, :session_data, :api_key_id, :expires_at, NOW()
+                )
+            """, {
+                "session_id": session_id,
+                "session_data": json.dumps(upload_session.to_dict()),
+                "api_key_id": api_key_id,
+                "expires_at": datetime.fromtimestamp(expires_at)
+            })
             
             self.logger.info(
                 "Upload session created",
@@ -290,18 +276,22 @@ class SessionManager:
             UploadSession object or None if not found
         """
         try:
-            redis = await self._get_redis()
+            db = await self._get_database()
             
-            session_key = self.UPLOAD_SESSION_KEY.format(session_id=session_id)
-            session_data = await redis.get(session_key)
+            # Get session from PostgreSQL
+            result = await db.fetch_one("""
+                SELECT session_data, expires_at 
+                FROM sessions 
+                WHERE id = :session_id AND expires_at > NOW()
+            """, {"session_id": session_id})
             
-            if not session_data:
+            if not result:
                 return None
             
-            session_dict = json.loads(session_data) if isinstance(session_data, str) else session_data
+            session_dict = json.loads(result['session_data'])
             upload_session = UploadSession.from_dict(session_dict)
             
-            # Check if expired
+            # Double-check expiration (defensive programming)
             if upload_session.is_expired():
                 await self.delete_upload_session(session_id)
                 return None
@@ -337,15 +327,18 @@ class SessionManager:
             bool: True if updated successfully
         """
         try:
-            redis = await self._get_redis()
+            db = await self._get_database()
             
-            session_key = self.UPLOAD_SESSION_KEY.format(session_id=session_id)
-            session_data = await redis.get(session_key)
+            # Get current session data
+            result = await db.fetch_one("""
+                SELECT session_data FROM sessions 
+                WHERE id = :session_id AND expires_at > NOW()
+            """, {"session_id": session_id})
             
-            if not session_data:
+            if not result:
                 return False
             
-            session_dict = json.loads(session_data) if isinstance(session_data, str) else session_data
+            session_dict = json.loads(result['session_data'])
             upload_session = UploadSession.from_dict(session_dict)
             
             # Update fields
@@ -358,9 +351,15 @@ class SessionManager:
             if error_message is not None:
                 upload_session.error_message = error_message
             
-            # Store updated session
-            ttl = upload_session.ttl_seconds()
-            await redis.set(session_key, json.dumps(upload_session.to_dict()), ex=ttl)
+            # Store updated session in PostgreSQL
+            await db.execute("""
+                UPDATE sessions 
+                SET session_data = :session_data 
+                WHERE id = :session_id
+            """, {
+                "session_id": session_id,
+                "session_data": json.dumps(upload_session.to_dict())
+            })
             
             self.logger.debug(
                 "Upload session updated",
@@ -391,31 +390,22 @@ class SessionManager:
             bool: True if deleted successfully
         """
         try:
-            redis = await self._get_redis()
+            db = await self._get_database()
             
-            # Get session to find associated data
-            upload_session = await self.get_upload_session(session_id)
+            # Delete session from PostgreSQL
+            rows_deleted = await db.execute("""
+                DELETE FROM sessions WHERE id = :session_id
+            """, {"session_id": session_id})
             
-            # Delete session key
-            session_key = self.UPLOAD_SESSION_KEY.format(session_id=session_id)
-            await redis.delete(session_key)
+            success = rows_deleted > 0
             
-            # Remove from active sessions set
-            await redis._client.zrem(self.ACTIVE_SESSIONS_SET, session_id)
+            if success:
+                self.logger.debug(
+                    "Upload session deleted",
+                    extra={"session_id": session_id}
+                )
             
-            # Remove from user sessions set if applicable
-            if upload_session and upload_session.api_key_id:
-                user_sessions_key = self.USER_SESSIONS_SET.format(api_key_id=upload_session.api_key_id)
-                await redis._client.srem(user_sessions_key, session_id)
-            
-            await self._update_stats("sessions_deleted")
-            
-            self.logger.debug(
-                "Upload session deleted",
-                extra={"session_id": session_id}
-            )
-            
-            return True
+            return success
             
         except Exception as e:
             self.logger.error(
@@ -457,7 +447,7 @@ class SessionManager:
             CacheException: If storage fails
         """
         try:
-            redis = await self._get_redis()
+            db = await self._get_database()
             current_time = time.time()
             
             # Generate file ID
@@ -486,22 +476,29 @@ class SessionManager:
             if api_key_id:
                 await self._enforce_temp_file_limits(api_key_id)
             
-            # Store file metadata
-            file_key = self.TEMP_FILE_KEY.format(file_id=file_id)
-            await redis.set(file_key, json.dumps(temp_file.to_dict()), ex=ttl)
-            
-            # Add to global temp files set
-            await redis._client.zadd(
-                self.TEMP_FILES_SET,
-                {file_id: expires_at}
-            )
-            
-            # Index by file hash for deduplication
-            hash_key = self.FILE_BY_HASH_KEY.format(file_hash=file_hash)
-            await redis._client.sadd(hash_key, file_id)
-            await redis._client.expire(hash_key, ttl)
-            
-            await self._update_stats("temp_files_stored")
+            # Store file metadata in PostgreSQL
+            await db.execute("""
+                INSERT INTO temp_files (
+                    id, filename, stored_path, file_size, file_hash,
+                    content_type, upload_session_id, api_key_id, 
+                    expires_at, tags, created_at
+                ) VALUES (
+                    :file_id, :filename, :stored_path, :file_size, :file_hash,
+                    :content_type, :upload_session_id, :api_key_id,
+                    :expires_at, :tags, NOW()
+                )
+            """, {
+                "file_id": file_id,
+                "filename": original_filename,
+                "stored_path": stored_path,
+                "file_size": file_size,
+                "file_hash": file_hash,
+                "content_type": content_type,
+                "upload_session_id": upload_session_id,
+                "api_key_id": api_key_id,
+                "expires_at": datetime.fromtimestamp(expires_at),
+                "tags": json.dumps(list(tags or set()))
+            })
             
             self.logger.info(
                 "Temporary file stored",
@@ -535,30 +532,54 @@ class SessionManager:
             TempFileMetadata object or None if not found
         """
         try:
-            redis = await self._get_redis()
+            db = await self._get_database()
             
-            file_key = self.TEMP_FILE_KEY.format(file_id=file_id)
-            file_data = await redis.get(file_key)
+            # Get temp file from PostgreSQL
+            result = await db.fetch_one("""
+                SELECT filename, stored_path, file_size, file_hash,
+                       content_type, upload_session_id, api_key_id,
+                       access_count, last_accessed, tags,
+                       EXTRACT(epoch FROM created_at) as created_at,
+                       EXTRACT(epoch FROM expires_at) as expires_at
+                FROM temp_files 
+                WHERE id = :file_id AND expires_at > NOW()
+            """, {"file_id": file_id})
             
-            if not file_data:
+            if not result:
                 return None
             
-            file_dict = json.loads(file_data) if isinstance(file_data, str) else file_data
-            temp_file = TempFileMetadata.from_dict(file_dict)
+            # Create TempFileMetadata from database result
+            temp_file = TempFileMetadata(
+                file_id=file_id,
+                original_filename=result['filename'],
+                stored_path=result['stored_path'],
+                file_size=result['file_size'],
+                file_hash=result['file_hash'],
+                content_type=result['content_type'],
+                upload_session_id=result['upload_session_id'],
+                api_key_id=result['api_key_id'],
+                created_at=result['created_at'],
+                expires_at=result['expires_at'],
+                access_count=result['access_count'] or 0,
+                last_accessed=result['last_accessed'],
+                tags=set(json.loads(result['tags'] or '[]'))
+            )
             
-            # Check if expired
+            # Check if expired (defensive programming)
             if temp_file.is_expired():
                 await self.delete_temp_file(file_id)
                 return None
             
             # Update access statistics
             if update_access:
+                await db.execute("""
+                    UPDATE temp_files 
+                    SET access_count = access_count + 1, last_accessed = NOW()
+                    WHERE id = :file_id
+                """, {"file_id": file_id})
+                
                 temp_file.access_count += 1
                 temp_file.last_accessed = time.time()
-                
-                # Update in Redis
-                ttl = temp_file.ttl_seconds()
-                await redis.set(file_key, json.dumps(temp_file.to_dict()), ex=ttl)
             
             return temp_file
             
@@ -580,31 +601,22 @@ class SessionManager:
             bool: True if deleted successfully
         """
         try:
-            redis = await self._get_redis()
+            db = await self._get_database()
             
-            # Get file metadata first
-            temp_file = await self.get_temp_file(file_id, update_access=False)
+            # Delete temp file from PostgreSQL
+            rows_deleted = await db.execute("""
+                DELETE FROM temp_files WHERE id = :file_id
+            """, {"file_id": file_id})
             
-            # Delete file metadata
-            file_key = self.TEMP_FILE_KEY.format(file_id=file_id)
-            await redis.delete(file_key)
+            success = rows_deleted > 0
             
-            # Remove from temp files set
-            await redis._client.zrem(self.TEMP_FILES_SET, file_id)
+            if success:
+                self.logger.debug(
+                    "Temporary file deleted",
+                    extra={"file_id": file_id}
+                )
             
-            # Remove from hash index
-            if temp_file:
-                hash_key = self.FILE_BY_HASH_KEY.format(file_hash=temp_file.file_hash)
-                await redis._client.srem(hash_key, file_id)
-            
-            await self._update_stats("temp_files_deleted")
-            
-            self.logger.debug(
-                "Temporary file deleted",
-                extra={"file_id": file_id}
-            )
-            
-            return True
+            return success
             
         except Exception as e:
             self.logger.error(
@@ -624,18 +636,15 @@ class SessionManager:
             List of file IDs with matching hash
         """
         try:
-            redis = await self._get_redis()
+            db = await self._get_database()
             
-            hash_key = self.FILE_BY_HASH_KEY.format(file_hash=file_hash)
-            file_ids = await redis._client.smembers(hash_key)
+            # Find files by hash from PostgreSQL
+            results = await db.fetch_all("""
+                SELECT id FROM temp_files 
+                WHERE file_hash = :file_hash AND expires_at > NOW()
+            """, {"file_hash": file_hash})
             
-            # Filter out expired files
-            valid_file_ids = []
-            for file_id in file_ids:
-                if await self.get_temp_file(file_id, update_access=False):
-                    valid_file_ids.append(file_id)
-            
-            return valid_file_ids
+            return [row['id'] for row in results]
             
         except Exception as e:
             self.logger.error(
@@ -652,18 +661,12 @@ class SessionManager:
             int: Number of sessions cleaned up
         """
         try:
-            redis = await self._get_redis()
-            current_time = time.time()
-            cleaned_count = 0
+            db = await self._get_database()
             
-            # Get expired sessions from sorted set
-            expired_sessions = await redis._client.zrangebyscore(
-                self.ACTIVE_SESSIONS_SET, 0, current_time
-            )
-            
-            for session_id in expired_sessions:
-                await self.delete_upload_session(session_id)
-                cleaned_count += 1
+            # Delete expired sessions from PostgreSQL
+            cleaned_count = await db.execute("""
+                DELETE FROM sessions WHERE expires_at < NOW()
+            """)
             
             if cleaned_count > 0:
                 self.logger.info(
@@ -688,18 +691,12 @@ class SessionManager:
             int: Number of temp files cleaned up
         """
         try:
-            redis = await self._get_redis()
-            current_time = time.time()
-            cleaned_count = 0
+            db = await self._get_database()
             
-            # Get expired temp files from sorted set
-            expired_files = await redis._client.zrangebyscore(
-                self.TEMP_FILES_SET, 0, current_time
-            )
-            
-            for file_id in expired_files:
-                await self.delete_temp_file(file_id)
-                cleaned_count += 1
+            # Delete expired temp files from PostgreSQL
+            cleaned_count = await db.execute("""
+                DELETE FROM temp_files WHERE expires_at < NOW()
+            """)
             
             if cleaned_count > 0:
                 self.logger.info(
@@ -724,24 +721,20 @@ class SessionManager:
             Dictionary with session statistics
         """
         try:
-            redis = await self._get_redis()
+            db = await self._get_database()
             
-            # Get basic stats
-            stats = await redis._client.hgetall(self.SESSION_STATS_KEY) or {}
+            # Get current counts from PostgreSQL
+            session_count = await db.fetch_val("""
+                SELECT COUNT(*) FROM sessions WHERE expires_at > NOW()
+            """)
             
-            # Get current counts
-            active_sessions = await redis._client.zcard(self.ACTIVE_SESSIONS_SET)
-            temp_files = await redis._client.zcard(self.TEMP_FILES_SET)
+            temp_files_count = await db.fetch_val("""
+                SELECT COUNT(*) FROM temp_files WHERE expires_at > NOW()
+            """)
             
             return {
-                'active_upload_sessions': active_sessions,
-                'stored_temp_files': temp_files,
-                'sessions_created': int(stats.get('sessions_created', 0)),
-                'sessions_deleted': int(stats.get('sessions_deleted', 0)),
-                'temp_files_stored': int(stats.get('temp_files_stored', 0)),
-                'temp_files_deleted': int(stats.get('temp_files_deleted', 0)),
-                'cleanup_runs': int(stats.get('cleanup_runs', 0)),
-                'last_cleanup': stats.get('last_cleanup'),
+                'active_upload_sessions': session_count or 0,
+                'stored_temp_files': temp_files_count or 0,
                 'timestamp': time.time()
             }
             
@@ -778,16 +771,9 @@ class SessionManager:
                 sessions_cleaned = await self.cleanup_expired_sessions()
                 files_cleaned = await self.cleanup_expired_temp_files()
                 
-                # Update stats
+                # Update stats (simplified for PostgreSQL implementation)
                 if sessions_cleaned > 0 or files_cleaned > 0:
-                    await self._update_stats("cleanup_runs")
-                    
-                    redis = await self._get_redis()
-                    await redis._client.hset(
-                        self.SESSION_STATS_KEY,
-                        "last_cleanup",
-                        str(int(time.time()))
-                    )
+                    pass  # Could implement stats table if needed
                 
                 # Wait for next cleanup cycle
                 await asyncio.sleep(self.cleanup_interval_seconds)
@@ -804,12 +790,14 @@ class SessionManager:
     async def _enforce_session_limits(self, api_key_id: str) -> None:
         """Enforce session limits per user."""
         try:
-            redis = await self._get_redis()
+            db = await self._get_database()
             
-            user_sessions_key = self.USER_SESSIONS_SET.format(api_key_id=api_key_id)
-            session_count = await redis._client.scard(user_sessions_key)
+            session_count = await db.fetch_val("""
+                SELECT COUNT(*) FROM sessions 
+                WHERE api_key_id = :api_key_id AND expires_at > NOW()
+            """, {"api_key_id": api_key_id})
             
-            if session_count >= self.max_sessions_per_user:
+            if session_count and session_count >= self.max_sessions_per_user:
                 raise CacheException(f"Maximum sessions per user exceeded: {session_count}/{self.max_sessions_per_user}")
             
         except CacheException:
@@ -819,17 +807,21 @@ class SessionManager:
     
     async def _enforce_temp_file_limits(self, api_key_id: str) -> None:
         """Enforce temporary file limits per user."""
-        # Implementation would depend on how you want to track per-user file counts
-        # This is a simplified version
-        pass
-    
-    async def _update_stats(self, stat_name: str, count: int = 1) -> None:
-        """Update session statistics."""
         try:
-            redis = await self._get_redis()
-            await redis._client.hincrby(self.SESSION_STATS_KEY, stat_name, count)
+            db = await self._get_database()
+            
+            file_count = await db.fetch_val("""
+                SELECT COUNT(*) FROM temp_files 
+                WHERE api_key_id = :api_key_id AND expires_at > NOW()
+            """, {"api_key_id": api_key_id})
+            
+            if file_count and file_count >= self.max_temp_files_per_user:
+                raise CacheException(f"Maximum temp files per user exceeded: {file_count}/{self.max_temp_files_per_user}")
+            
+        except CacheException:
+            raise
         except Exception:
-            pass  # Don't fail operations due to stats errors
+            pass  # Don't fail operations due to limit check errors
     
     async def validate_uploaded_file(self, session_id: str, file_content: bytes) -> Dict[str, Any]:
         """

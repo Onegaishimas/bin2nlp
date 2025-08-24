@@ -1,48 +1,43 @@
 """
-Redis client base implementation with connection management and basic operations.
+File-based storage implementation with async operations and expiration management.
 
-Provides the foundational Redis client with connection pooling, health checks,
-retry logic, and basic cache operations for all cache components.
+Provides the foundational file storage client with JSON serialization, expiration handling,
+and comprehensive logging for all cache components.
 """
 
 import asyncio
 import json
+import os
+import shutil
+import tempfile
 from contextlib import asynccontextmanager
-from typing import Any, Optional, Union, Dict, List, AsyncGenerator
 from datetime import datetime, timedelta
-
-import redis.asyncio as redis
-from redis.asyncio.connection import ConnectionPool
-from redis.asyncio.retry import Retry
-from redis.backoff import ExponentialBackoff
-from redis.exceptions import (
-    ConnectionError, 
-    TimeoutError, 
-    RedisError, 
-    BusyLoadingError,
-    ResponseError
-)
+from pathlib import Path
+from typing import Any, Optional, Union, Dict, List, AsyncGenerator
+import fcntl
+import hashlib
 
 from ..core.config import Settings, get_settings
 from ..core.exceptions import CacheException, CacheConnectionError, CacheTimeoutError
 from ..core.logging import get_logger
 
 
-class RedisClient:
+class FileStorageClient:
     """
-    Async Redis client with connection pooling, health checks, and error handling.
+    Async file-based storage client with JSON serialization and expiration management.
     
     Features:
-    - Connection pooling with automatic retry
-    - Health monitoring and reconnection
-    - JSON serialization/deserialization
-    - Comprehensive error handling
-    - Performance metrics
+    - File-based key-value storage with directories
+    - JSON serialization/deserialization with binary data support
+    - TTL-based expiration with background cleanup
+    - File locking for thread safety
+    - Comprehensive error handling and logging
+    - Performance metrics tracking
     """
     
     def __init__(self, settings: Optional[Settings] = None):
         """
-        Initialize Redis client.
+        Initialize file storage client.
         
         Args:
             settings: Application settings (uses global settings if None)
@@ -50,243 +45,242 @@ class RedisClient:
         self.settings = settings or get_settings()
         self.logger = get_logger(__name__)
         
-        self._pool: Optional[ConnectionPool] = None
-        self._client: Optional[redis.Redis] = None
-        self._health_check_task: Optional[asyncio.Task] = None
+        # Storage configuration
+        self.base_path = Path(getattr(self.settings, 'storage_base_path', '/var/lib/app/data'))
+        self.default_ttl_hours = getattr(self.settings, 'storage_cache_ttl_hours', 24)
+        self.max_file_size_mb = getattr(self.settings, 'storage_max_file_size_mb', 100)
         
-        # Connection state
-        self._connected = False
-        self._last_health_check = datetime.min
-        self._connection_errors = 0
-        self._max_connection_errors = 5
+        # Create base directory
+        self.base_path.mkdir(parents=True, exist_ok=True)
+        
+        # Storage state
+        self._connected = True  # File storage is always "connected"
+        self._last_cleanup = datetime.min
+        self._cleanup_interval = 3600  # 1 hour
+        self._cleanup_task: Optional[asyncio.Task] = None
         
         # Performance metrics
         self._operation_count = 0
         self._error_count = 0
         self._total_response_time = 0.0
+        
+        # Start background cleanup task
+        self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+        
+        self.logger.info(
+            "File storage initialized",
+            extra={
+                "base_path": str(self.base_path),
+                "default_ttl_hours": self.default_ttl_hours,
+                "max_file_size_mb": self.max_file_size_mb
+            }
+        )
     
-    def _decode_redis_value(self, value):
-        """Helper to decode Redis values that might be bytes."""
-        if isinstance(value, bytes):
-            return value.decode('utf-8')
-        return value
+    def _get_file_path(self, key: str) -> Path:
+        """
+        Get file path for a given key.
+        
+        Args:
+            key: Cache key
+            
+        Returns:
+            Path: File path for the key
+        """
+        # Hash key to create safe filename and avoid long paths
+        key_hash = hashlib.sha256(key.encode('utf-8')).hexdigest()
+        
+        # Create subdirectories based on first two characters of hash
+        subdir1 = key_hash[:2]
+        subdir2 = key_hash[2:4]
+        
+        file_dir = self.base_path / subdir1 / subdir2
+        file_dir.mkdir(parents=True, exist_ok=True)
+        
+        return file_dir / f"{key_hash}.json"
+    
+    def _get_meta_path(self, key: str) -> Path:
+        """
+        Get metadata file path for a given key.
+        
+        Args:
+            key: Cache key
+            
+        Returns:
+            Path: Metadata file path for the key
+        """
+        data_path = self._get_file_path(key)
+        return data_path.with_suffix('.meta')
     
     async def connect(self) -> None:
         """
-        Establish Redis connection with retry logic.
-        
-        Raises:
-            CacheConnectionError: If connection fails after retries
+        Initialize file storage (no-op for file storage).
         """
-        if self._connected:
-            return
-        
-        try:
-            # Create connection pool with retry configuration
-            retry = Retry(
-                ExponentialBackoff(cap=10, base=1), 
-                retries=3
-            )
-            
-            self._pool = ConnectionPool(
-                host=self.settings.database.host,
-                port=self.settings.database.port,
-                db=self.settings.database.db,
-                password=self.settings.database.password,
-                username=self.settings.database.username,
-                max_connections=self.settings.database.max_connections,
-                socket_connect_timeout=self.settings.database.socket_connect_timeout,
-                socket_keepalive=self.settings.database.socket_keepalive,
-                retry=retry,
-                health_check_interval=self.settings.database.health_check_interval
-            )
-            
-            # Create Redis client
-            self._client = redis.Redis(
-                connection_pool=self._pool,
-                decode_responses=True
-            )
-            
-            # Test connection
-            await self._client.ping()
-            
-            self._connected = True
-            self._connection_errors = 0
-            
-            # Start health check task
-            self._health_check_task = asyncio.create_task(
-                self._health_check_loop()
-            )
-            
-            self.logger.info(
-                "Redis connection established",
-                extra={
-                    "host": self.settings.database.host,
-                    "port": self.settings.database.port,
-                    "db": self.settings.database.db
-                }
-            )
-            
-        except Exception as e:
-            self._connected = False
-            self._connection_errors += 1
-            
-            self.logger.error(
-                "Failed to connect to Redis",
-                extra={
-                    "error": str(e),
-                    "connection_errors": self._connection_errors,
-                    "host": self.settings.database.host,
-                    "port": self.settings.database.port
-                }
-            )
-            
-            raise CacheConnectionError(f"Redis connection failed: {e}")
+        self._connected = True
+        self.logger.debug("File storage connect called (no-op)")
     
     async def disconnect(self) -> None:
-        """Gracefully close Redis connections."""
+        """Close file storage and cleanup tasks."""
         self._connected = False
         
-        # Cancel health check task
-        if self._health_check_task:
-            self._health_check_task.cancel()
+        # Cancel cleanup task
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
             try:
-                await self._health_check_task
+                await self._cleanup_task
             except asyncio.CancelledError:
                 pass
         
-        # Close client and pool
-        if self._client:
-            await self._client.aclose()
-            self._client = None
-        
-        if self._pool:
-            await self._pool.aclose()
-            self._pool = None
-        
-        self.logger.info("Redis connection closed")
+        self.logger.info("File storage disconnected")
     
     async def health_check(self) -> bool:
         """
-        Check Redis connection health.
+        Check file storage health.
         
         Returns:
-            bool: True if healthy, False otherwise
+            bool: Always True for file storage
         """
-        if not self._connected or not self._client:
-            return False
-        
         try:
-            start_time = datetime.utcnow()
-            await self._client.ping()
-            response_time = (datetime.utcnow() - start_time).total_seconds()
+            # Test write/read operation
+            test_key = "_health_check_test"
+            await self.set(test_key, {"test": True}, ttl=1)
+            result = await self.get(test_key)
+            await self.delete(test_key)
             
-            self._last_health_check = datetime.utcnow()
-            
-            # Log slow responses
-            if response_time > 1.0:
-                self.logger.warning(
-                    "Slow Redis response",
-                    extra={"response_time_seconds": response_time}
-                )
-            
-            return True
+            return result is not None and result.get("test") is True
             
         except Exception as e:
             self.logger.warning(
-                "Redis health check failed",
+                "File storage health check failed",
                 extra={"error": str(e)}
             )
             return False
     
-    async def _health_check_loop(self) -> None:
-        """Background task for periodic health checks."""
+    async def _cleanup_loop(self) -> None:
+        """Background task for cleaning up expired files."""
         while self._connected:
             try:
-                healthy = await self.health_check()
+                await self._cleanup_expired_files()
+                self._last_cleanup = datetime.utcnow()
                 
-                if not healthy:
-                    self._connection_errors += 1
-                    if self._connection_errors >= self._max_connection_errors:
-                        self.logger.error(
-                            "Too many connection errors, marking as disconnected",
-                            extra={"connection_errors": self._connection_errors}
-                        )
-                        self._connected = False
-                        break
-                else:
-                    self._connection_errors = 0
-                
-                # Wait for next health check
-                await asyncio.sleep(self.settings.database.health_check_interval)
+                # Wait for next cleanup
+                await asyncio.sleep(self._cleanup_interval)
                 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.logger.error(
-                    "Health check loop error",
+                    "Cleanup loop error",
                     extra={"error": str(e)}
                 )
-                await asyncio.sleep(5)
+                await asyncio.sleep(60)  # Wait 1 minute on error
+    
+    async def _cleanup_expired_files(self) -> None:
+        """Remove expired files from storage."""
+        try:
+            current_time = datetime.utcnow()
+            expired_count = 0
+            
+            # Walk through all storage directories
+            for root, dirs, files in os.walk(self.base_path):
+                for file in files:
+                    if file.endswith('.meta'):
+                        meta_path = Path(root) / file
+                        data_path = meta_path.with_suffix('.json')
+                        
+                        try:
+                            # Read metadata
+                            async with self._file_lock(meta_path):
+                                if meta_path.exists():
+                                    with open(meta_path, 'r') as f:
+                                        metadata = json.load(f)
+                                    
+                                    expires_at = metadata.get('expires_at')
+                                    if expires_at:
+                                        expiry_time = datetime.fromisoformat(expires_at)
+                                        if current_time > expiry_time:
+                                            # Remove expired files
+                                            if data_path.exists():
+                                                data_path.unlink()
+                                            meta_path.unlink()
+                                            expired_count += 1
+                        
+                        except Exception as e:
+                            self.logger.warning(
+                                "Error cleaning up expired file",
+                                extra={"file": str(meta_path), "error": str(e)}
+                            )
+            
+            if expired_count > 0:
+                self.logger.info(
+                    "Cleaned up expired files",
+                    extra={"expired_count": expired_count}
+                )
+        
+        except Exception as e:
+            self.logger.error(
+                "Error during cleanup",
+                extra={"error": str(e)}
+            )
     
     @asynccontextmanager
-    async def _operation_context(self, operation_name: str) -> AsyncGenerator[redis.Redis, None]:
+    async def _file_lock(self, file_path: Path) -> AsyncGenerator[None, None]:
         """
-        Context manager for Redis operations with error handling and metrics.
+        Context manager for file locking.
+        
+        Args:
+            file_path: Path to file to lock
+        """
+        lock_file = None
+        try:
+            # Create lock file
+            lock_file = open(f"{file_path}.lock", 'w')
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            yield
+        finally:
+            if lock_file:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+                try:
+                    Path(f"{file_path}.lock").unlink(missing_ok=True)
+                except:
+                    pass
+    
+    @asynccontextmanager
+    async def _operation_context(self, operation_name: str) -> AsyncGenerator[None, None]:
+        """
+        Context manager for operations with error handling and metrics.
         
         Args:
             operation_name: Name of the operation for logging
-            
-        Yields:
-            Redis client instance
-            
-        Raises:
-            CacheException: On operation failures
         """
-        if not self._connected or not self._client:
-            raise CacheConnectionError("Redis not connected")
+        if not self._connected:
+            raise CacheConnectionError("File storage not connected")
         
         start_time = datetime.utcnow()
         
         try:
-            yield self._client
+            yield
             
             # Update metrics
             self._operation_count += 1
             response_time = (datetime.utcnow() - start_time).total_seconds()
             self._total_response_time += response_time
             
-        except ConnectionError as e:
+        except OSError as e:
             self._error_count += 1
             self.logger.error(
-                f"Redis connection error during {operation_name}",
+                f"File system error during {operation_name}",
                 extra={"error": str(e)}
             )
-            raise CacheConnectionError(f"Connection error during {operation_name}: {e}")
+            raise CacheConnectionError(f"File system error during {operation_name}: {e}")
             
-        except TimeoutError as e:
+        except json.JSONDecodeError as e:
             self._error_count += 1
             self.logger.error(
-                f"Redis timeout during {operation_name}",
+                f"JSON decode error during {operation_name}",
                 extra={"error": str(e)}
             )
-            raise CacheTimeoutError(f"Timeout during {operation_name}: {e}")
-            
-        except BusyLoadingError as e:
-            self._error_count += 1
-            self.logger.warning(
-                f"Redis busy loading during {operation_name}",
-                extra={"error": str(e)}
-            )
-            raise CacheException(f"Redis busy during {operation_name}: {e}")
-            
-        except ResponseError as e:
-            self._error_count += 1
-            self.logger.error(
-                f"Redis response error during {operation_name}",
-                extra={"error": str(e)}
-            )
-            raise CacheException(f"Redis error during {operation_name}: {e}")
+            raise CacheException(f"JSON decode error during {operation_name}: {e}")
             
         except Exception as e:
             self._error_count += 1
@@ -298,7 +292,7 @@ class RedisClient:
     
     def _serialize_value(self, value: Any) -> str:
         """
-        Serialize a value for Redis storage.
+        Serialize a value for file storage.
         
         Args:
             value: Value to serialize
@@ -319,14 +313,14 @@ class RedisClient:
             try:
                 return json.dumps(value, default=str)
             except (TypeError, ValueError):
-                return str(value)
+                return json.dumps(str(value))
     
     def _deserialize_value(self, value: str) -> Any:
         """
-        Deserialize a value from Redis storage.
+        Deserialize a value from file storage.
         
         Args:
-            value: Serialized value from Redis
+            value: Serialized value from file
             
         Returns:
             Any: Deserialized value
@@ -345,23 +339,70 @@ class RedisClient:
             # Return as string if not valid JSON
             return value
     
-    # Basic cache operations
-    
-    async def get(self, key: str) -> Optional[Any]:
+    async def _is_expired(self, key: str) -> bool:
         """
-        Get a value from Redis cache.
+        Check if a key has expired.
         
         Args:
             key: Cache key
             
         Returns:
-            Any: Cached value or None if not found
+            bool: True if expired or doesn't exist
         """
-        async with self._operation_context("get") as client:
-            value = await client.get(key)
-            if value is None:
+        meta_path = self._get_meta_path(key)
+        
+        if not meta_path.exists():
+            return True
+        
+        try:
+            with open(meta_path, 'r') as f:
+                metadata = json.load(f)
+            
+            expires_at = metadata.get('expires_at')
+            if not expires_at:
+                return False  # No expiration
+            
+            expiry_time = datetime.fromisoformat(expires_at)
+            return datetime.utcnow() > expiry_time
+            
+        except Exception:
+            return True  # Treat as expired on error
+    
+    # Basic cache operations
+    
+    async def get(self, key: str) -> Optional[Any]:
+        """
+        Get a value from file storage.
+        
+        Args:
+            key: Cache key
+            
+        Returns:
+            Any: Cached value or None if not found/expired
+        """
+        async with self._operation_context("get"):
+            data_path = self._get_file_path(key)
+            
+            if not data_path.exists():
                 return None
-            return self._deserialize_value(value)
+            
+            # Check expiration
+            if await self._is_expired(key):
+                # Clean up expired files
+                try:
+                    data_path.unlink(missing_ok=True)
+                    self._get_meta_path(key).unlink(missing_ok=True)
+                except:
+                    pass
+                return None
+            
+            async with self._file_lock(data_path):
+                try:
+                    with open(data_path, 'r') as f:
+                        value = f.read()
+                    return self._deserialize_value(value)
+                except Exception:
+                    return None
     
     async def set(
         self, 
@@ -372,7 +413,7 @@ class RedisClient:
         xx: bool = False
     ) -> bool:
         """
-        Set a value in Redis cache.
+        Set a value in file storage.
         
         Args:
             key: Cache key
@@ -384,22 +425,71 @@ class RedisClient:
         Returns:
             bool: True if value was set
         """
-        async with self._operation_context("set") as client:
+        async with self._operation_context("set"):
+            data_path = self._get_file_path(key)
+            meta_path = self._get_meta_path(key)
+            
+            # Check nx/xx conditions
+            exists = data_path.exists() and not await self._is_expired(key)
+            
+            if nx and exists:
+                return False
+            if xx and not exists:
+                return False
+            
+            # Calculate expiration
+            expires_at = None
+            if ttl is not None:
+                expires_at = (datetime.utcnow() + timedelta(seconds=ttl)).isoformat()
+            elif not exists:  # New key gets default TTL
+                expires_at = (datetime.utcnow() + timedelta(hours=self.default_ttl_hours)).isoformat()
+            
             serialized_value = self._serialize_value(value)
             
-            result = await client.set(
-                key, 
-                serialized_value,
-                ex=ttl,
-                nx=nx,
-                xx=xx
-            )
-            
-            return bool(result)
+            # Write data and metadata atomically
+            async with self._file_lock(data_path):
+                try:
+                    # Write data to temporary file first
+                    with tempfile.NamedTemporaryFile(mode='w', delete=False, 
+                                                   dir=data_path.parent, 
+                                                   suffix='.tmp') as tmp_data:
+                        tmp_data.write(serialized_value)
+                        tmp_data_path = tmp_data.name
+                    
+                    # Write metadata to temporary file
+                    metadata = {
+                        'created_at': datetime.utcnow().isoformat(),
+                        'expires_at': expires_at,
+                        'key': key
+                    }
+                    
+                    with tempfile.NamedTemporaryFile(mode='w', delete=False,
+                                                   dir=meta_path.parent,
+                                                   suffix='.tmp') as tmp_meta:
+                        json.dump(metadata, tmp_meta)
+                        tmp_meta_path = tmp_meta.name
+                    
+                    # Atomic move
+                    shutil.move(tmp_data_path, data_path)
+                    shutil.move(tmp_meta_path, meta_path)
+                    
+                    return True
+                
+                except Exception as e:
+                    # Cleanup temporary files on error
+                    try:
+                        os.unlink(tmp_data_path)
+                    except:
+                        pass
+                    try:
+                        os.unlink(tmp_meta_path)
+                    except:
+                        pass
+                    raise
     
     async def delete(self, *keys: str) -> int:
         """
-        Delete keys from Redis cache.
+        Delete keys from file storage.
         
         Args:
             *keys: Keys to delete
@@ -410,24 +500,60 @@ class RedisClient:
         if not keys:
             return 0
         
-        async with self._operation_context("delete") as client:
-            return await client.delete(*keys)
+        async with self._operation_context("delete"):
+            deleted_count = 0
+            
+            for key in keys:
+                data_path = self._get_file_path(key)
+                meta_path = self._get_meta_path(key)
+                
+                async with self._file_lock(data_path):
+                    try:
+                        data_deleted = False
+                        meta_deleted = False
+                        
+                        if data_path.exists():
+                            data_path.unlink()
+                            data_deleted = True
+                        
+                        if meta_path.exists():
+                            meta_path.unlink()
+                            meta_deleted = True
+                        
+                        if data_deleted or meta_deleted:
+                            deleted_count += 1
+                    
+                    except Exception as e:
+                        self.logger.warning(
+                            f"Error deleting key {key}",
+                            extra={"error": str(e)}
+                        )
+            
+            return deleted_count
     
     async def exists(self, *keys: str) -> int:
         """
-        Check if keys exist in Redis cache.
+        Check if keys exist in file storage.
         
         Args:
             *keys: Keys to check
             
         Returns:
-            int: Number of keys that exist
+            int: Number of keys that exist and are not expired
         """
         if not keys:
             return 0
         
-        async with self._operation_context("exists") as client:
-            return await client.exists(*keys)
+        async with self._operation_context("exists"):
+            exists_count = 0
+            
+            for key in keys:
+                data_path = self._get_file_path(key)
+                
+                if data_path.exists() and not await self._is_expired(key):
+                    exists_count += 1
+            
+            return exists_count
     
     async def expire(self, key: str, seconds: int) -> bool:
         """
@@ -440,8 +566,32 @@ class RedisClient:
         Returns:
             bool: True if expiration was set
         """
-        async with self._operation_context("expire") as client:
-            return await client.expire(key, seconds)
+        async with self._operation_context("expire"):
+            data_path = self._get_file_path(key)
+            meta_path = self._get_meta_path(key)
+            
+            if not data_path.exists() or await self._is_expired(key):
+                return False
+            
+            async with self._file_lock(data_path):
+                try:
+                    # Read existing metadata
+                    metadata = {}
+                    if meta_path.exists():
+                        with open(meta_path, 'r') as f:
+                            metadata = json.load(f)
+                    
+                    # Update expiration
+                    metadata['expires_at'] = (datetime.utcnow() + timedelta(seconds=seconds)).isoformat()
+                    
+                    # Write updated metadata
+                    with open(meta_path, 'w') as f:
+                        json.dump(metadata, f)
+                    
+                    return True
+                
+                except Exception:
+                    return False
     
     async def ttl(self, key: str) -> int:
         """
@@ -453,293 +603,98 @@ class RedisClient:
         Returns:
             int: TTL in seconds (-1 if no expiry, -2 if key doesn't exist)
         """
-        async with self._operation_context("ttl") as client:
-            return await client.ttl(key)
+        async with self._operation_context("ttl"):
+            data_path = self._get_file_path(key)
+            meta_path = self._get_meta_path(key)
+            
+            if not data_path.exists():
+                return -2
+            
+            if not meta_path.exists():
+                return -1  # No expiration set
+            
+            try:
+                with open(meta_path, 'r') as f:
+                    metadata = json.load(f)
+                
+                expires_at = metadata.get('expires_at')
+                if not expires_at:
+                    return -1  # No expiration
+                
+                expiry_time = datetime.fromisoformat(expires_at)
+                current_time = datetime.utcnow()
+                
+                if current_time > expiry_time:
+                    return -2  # Already expired
+                
+                return int((expiry_time - current_time).total_seconds())
+            
+            except Exception:
+                return -2
     
     async def keys(self, pattern: str = "*") -> List[str]:
         """
         Get keys matching a pattern.
         
         Args:
-            pattern: Key pattern (use with caution in production)
+            pattern: Key pattern (simplified - only * wildcard supported)
             
         Returns:
             List[str]: Matching keys
         """
-        async with self._operation_context("keys") as client:
-            return await client.keys(pattern)
+        async with self._operation_context("keys"):
+            matching_keys = []
+            
+            try:
+                # Walk through all storage directories
+                for root, dirs, files in os.walk(self.base_path):
+                    for file in files:
+                        if file.endswith('.meta'):
+                            meta_path = Path(root) / file
+                            
+                            try:
+                                with open(meta_path, 'r') as f:
+                                    metadata = json.load(f)
+                                
+                                key = metadata.get('key')
+                                if key and not await self._is_expired(key):
+                                    # Simple pattern matching (only * wildcard)
+                                    if pattern == "*" or pattern in key:
+                                        matching_keys.append(key)
+                            
+                            except Exception:
+                                continue
+            
+            except Exception as e:
+                self.logger.error(
+                    "Error listing keys",
+                    extra={"error": str(e)}
+                )
+            
+            return matching_keys
     
     async def flushdb(self) -> bool:
         """
-        Clear all keys from current database.
+        Clear all keys from storage.
         
         Returns:
             bool: True if successful
         """
-        async with self._operation_context("flushdb") as client:
-            result = await client.flushdb()
-            return result is True
-    
-    async def info(self, section: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Get Redis server information.
-        
-        Args:
-            section: Specific info section
+        async with self._operation_context("flushdb"):
+            try:
+                # Remove all files in storage directory
+                if self.base_path.exists():
+                    shutil.rmtree(self.base_path)
+                    self.base_path.mkdir(parents=True, exist_ok=True)
+                
+                return True
             
-        Returns:
-            Dict[str, Any]: Server information
-        """
-        async with self._operation_context("info") as client:
-            return await client.info(section)
-    
-    async def hset(self, key: str, field: str = None, value: Any = None, mapping: Dict[str, Any] = None, **kwargs) -> int:
-        """
-        Set hash fields.
-        
-        Args:
-            key: Hash key
-            field: Field name (for single field operations)
-            value: Field value (for single field operations)
-            mapping: Dictionary of field-value pairs
-            **kwargs: Additional field-value pairs
-            
-        Returns:
-            int: Number of fields added
-        """
-        async with self._operation_context("hset") as client:
-            if field is not None and value is not None:
-                # Single field-value operation
-                return await client.hset(key, field, value)
-            elif mapping:
-                return await client.hset(key, mapping=mapping)
-            else:
-                return await client.hset(key, **kwargs)
-    
-    async def hgetall(self, key: str) -> Dict[str, str]:
-        """
-        Get all fields from a hash.
-        
-        Args:
-            key: Hash key
-            
-        Returns:
-            Dict[str, str]: All field-value pairs
-        """
-        async with self._operation_context("hgetall") as client:
-            raw_data = await client.hgetall(key)
-            # Decode bytes to strings if needed
-            return {
-                self._decode_redis_value(k): self._decode_redis_value(v)
-                for k, v in raw_data.items()
-            }
-    
-    async def sadd(self, key: str, *values: str) -> int:
-        """
-        Add members to a set.
-        
-        Args:
-            key: Set key
-            *values: Values to add
-            
-        Returns:
-            int: Number of elements added
-        """
-        async with self._operation_context("sadd") as client:
-            return await client.sadd(key, *values)
-    
-    async def smembers(self, key: str) -> set:
-        """
-        Get all members of a set.
-        
-        Args:
-            key: Set key
-            
-        Returns:
-            set: All members of the set
-        """
-        async with self._operation_context("smembers") as client:
-            raw_data = await client.smembers(key)
-            # Decode bytes to strings if needed
-            return {self._decode_redis_value(item) for item in raw_data}
-    
-    async def zadd(self, key: str, mapping: Dict[str, float], **kwargs) -> int:
-        """
-        Add members to a sorted set.
-        
-        Args:
-            key: Sorted set key
-            mapping: Dictionary of member-score pairs
-            **kwargs: Additional options (nx, xx, ch, incr)
-            
-        Returns:
-            int: Number of elements added
-        """
-        async with self._operation_context("zadd") as client:
-            return await client.zadd(key, mapping, **kwargs)
-    
-    async def zremrangebyscore(self, key: str, min_score: float, max_score: float) -> int:
-        """
-        Remove members from sorted set by score range.
-        
-        Args:
-            key: Sorted set key
-            min_score: Minimum score (inclusive)
-            max_score: Maximum score (inclusive)
-            
-        Returns:
-            int: Number of elements removed
-        """
-        async with self._operation_context("zremrangebyscore") as client:
-            return await client.zremrangebyscore(key, min_score, max_score)
-    
-    async def zcount(self, key: str, min_score: float, max_score: float) -> int:
-        """
-        Count members in sorted set within score range.
-        
-        Args:
-            key: Sorted set key
-            min_score: Minimum score (inclusive)  
-            max_score: Maximum score (inclusive)
-            
-        Returns:
-            int: Number of elements in range
-        """
-        async with self._operation_context("zcount") as client:
-            return await client.zcount(key, min_score, max_score)
-    
-    async def zcard(self, key: str) -> int:
-        """
-        Get the number of members in a sorted set.
-        
-        Args:
-            key: Sorted set key
-            
-        Returns:
-            int: Number of elements in the sorted set
-        """
-        async with self._operation_context("zcard") as client:
-            return await client.zcard(key)
-    
-    async def zrange(self, key: str, start: int, stop: int, withscores: bool = False, **kwargs):
-        """
-        Get members from a sorted set by index range.
-        
-        Args:
-            key: Sorted set key
-            start: Start index
-            stop: Stop index
-            withscores: Whether to return scores along with members
-            **kwargs: Additional arguments
-            
-        Returns:
-            List of members or (member, score) tuples
-        """
-        async with self._operation_context("zrange") as client:
-            return await client.zrange(key, start, stop, withscores=withscores, **kwargs)
-    
-    # Advanced operations
-    
-    async def pipeline(self):
-        """
-        Create a Redis pipeline for batch operations.
-        
-        Returns:
-            Redis pipeline object
-        """
-        if not self._connected or not self._client:
-            raise CacheConnectionError("Redis not connected")
-        
-        return self._client.pipeline()
-    
-    async def transaction(self, func, *watches, **kwargs):
-        """
-        Execute a transaction with WATCH/MULTI/EXEC.
-        
-        Args:
-            func: Function to execute in transaction
-            *watches: Keys to watch
-            **kwargs: Additional arguments
-            
-        Returns:
-            Transaction result
-        """
-        async with self._operation_context("transaction") as client:
-            return await client.transaction(func, *watches, **kwargs)
-    
-    async def eval(self, script: str, numkeys: int, *keys_and_args):
-        """
-        Execute a Lua script.
-        
-        Args:
-            script: Lua script to execute
-            numkeys: Number of keys in the script
-            *keys_and_args: Keys and arguments for the script
-            
-        Returns:
-            Script execution result
-        """
-        async with self._operation_context("eval") as client:
-            return await client.eval(script, numkeys, *keys_and_args)
-    
-    async def scan(self, cursor: int = 0, match: str = None, count: int = None, _type: str = None):
-        """
-        Incrementally iterate the key space.
-        
-        Args:
-            cursor: Cursor position (0 to start)
-            match: Pattern to match keys against
-            count: Number of keys to return per iteration
-            _type: Type of keys to return
-            
-        Returns:
-            Tuple of (new_cursor, keys_list)
-        """
-        async with self._operation_context("scan") as client:
-            return await client.scan(cursor=cursor, match=match, count=count, _type=_type)
-    
-    async def scan_iter(self, match: str = None, count: int = None, _type: str = None):
-        """
-        Iterate over keys in the database.
-        
-        Args:
-            match: Pattern to match keys against
-            count: Number of keys to return per iteration
-            _type: Type of keys to return
-            
-        Returns:
-            AsyncIterator over matching keys
-        """
-        async with self._operation_context("scan_iter") as client:
-            async for key in client.scan_iter(match=match, count=count, _type=_type):
-                yield key
-    
-    async def srem(self, key: str, *values: str) -> int:
-        """
-        Remove members from a set.
-        
-        Args:
-            key: Set key
-            *values: Values to remove
-            
-        Returns:
-            int: Number of elements removed
-        """
-        async with self._operation_context("srem") as client:
-            return await client.srem(key, *values)
-    
-    async def scard(self, key: str) -> int:
-        """
-        Get the number of members in a set.
-        
-        Args:
-            key: Set key
-            
-        Returns:
-            int: Number of elements in the set
-        """
-        async with self._operation_context("scard") as client:
-            return await client.scard(key)
+            except Exception as e:
+                self.logger.error(
+                    "Error flushing storage",
+                    extra={"error": str(e)}
+                )
+                return False
     
     # Metrics and status
     
@@ -755,80 +710,91 @@ class RedisClient:
             if self._operation_count > 0 else 0
         )
         
+        # Calculate storage usage
+        total_size = 0
+        file_count = 0
+        try:
+            for root, dirs, files in os.walk(self.base_path):
+                for file in files:
+                    file_path = Path(root) / file
+                    total_size += file_path.stat().st_size
+                    file_count += 1
+        except Exception:
+            pass
+        
         return {
             "connected": self._connected,
             "operation_count": self._operation_count,
             "error_count": self._error_count,
-            "connection_errors": self._connection_errors,
             "average_response_time_seconds": avg_response_time,
-            "last_health_check": self._last_health_check.isoformat(),
-            "pool_stats": {
-                "max_connections": self.settings.database.max_connections,
-                "created_connections": getattr(self._pool, 'created_connections', 0) if self._pool else 0,
-                "available_connections": getattr(self._pool, 'available_connections', 0) if self._pool else 0,
-                "in_use_connections": getattr(self._pool, 'in_use_connections', 0) if self._pool else 0,
+            "last_cleanup": self._last_cleanup.isoformat(),
+            "storage_stats": {
+                "base_path": str(self.base_path),
+                "total_size_bytes": total_size,
+                "file_count": file_count,
+                "default_ttl_hours": self.default_ttl_hours,
+                "max_file_size_mb": self.max_file_size_mb
             }
         }
     
     @property
     def is_connected(self) -> bool:
-        """Check if Redis is connected."""
+        """Check if file storage is connected."""
         return self._connected
-    
-    @property
-    def redis_url(self) -> str:
-        """Get Redis connection URL."""
-        return self.settings.database.url
 
 
-# Global Redis client instance (will be initialized by the application)
-_redis_client: Optional[RedisClient] = None
+# Global file storage client instance
+_file_storage_client: Optional[FileStorageClient] = None
 
 
-async def get_redis_client() -> RedisClient:
+async def get_file_storage_client() -> FileStorageClient:
     """
-    Get the global Redis client instance.
+    Get the global file storage client instance.
     
     Returns:
-        RedisClient: Global Redis client
-        
-    Raises:
-        CacheConnectionError: If Redis client not initialized
+        FileStorageClient: Global file storage client
     """
-    global _redis_client
+    global _file_storage_client
     
-    if _redis_client is None:
-        _redis_client = RedisClient()
-        await _redis_client.connect()
+    if _file_storage_client is None:
+        _file_storage_client = FileStorageClient()
+        await _file_storage_client.connect()
     
-    return _redis_client
+    return _file_storage_client
 
 
-async def close_redis_client() -> None:
-    """Close the global Redis client."""
-    global _redis_client
+async def close_file_storage_client() -> None:
+    """Close the global file storage client."""
+    global _file_storage_client
     
-    if _redis_client:
-        await _redis_client.disconnect()
-        _redis_client = None
+    if _file_storage_client:
+        await _file_storage_client.disconnect()
+        _file_storage_client = None
 
 
-async def init_redis_client(settings: Optional[Settings] = None) -> RedisClient:
+async def init_file_storage_client(settings: Optional[Settings] = None) -> FileStorageClient:
     """
-    Initialize the global Redis client.
+    Initialize the global file storage client.
     
     Args:
         settings: Application settings
         
     Returns:
-        RedisClient: Initialized Redis client
+        FileStorageClient: Initialized file storage client
     """
-    global _redis_client
+    global _file_storage_client
     
-    if _redis_client:
-        await _redis_client.disconnect()
+    if _file_storage_client:
+        await _file_storage_client.disconnect()
     
-    _redis_client = RedisClient(settings)
-    await _redis_client.connect()
+    _file_storage_client = FileStorageClient(settings)
+    await _file_storage_client.connect()
     
-    return _redis_client
+    return _file_storage_client
+
+
+# Compatibility aliases for existing code
+RedisClient = FileStorageClient
+get_redis_client = get_file_storage_client
+close_redis_client = close_file_storage_client
+init_redis_client = init_file_storage_client

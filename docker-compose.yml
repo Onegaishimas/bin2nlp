@@ -1,13 +1,44 @@
 # Docker Compose for bin2nlp Production Deployment
-# Deploys API service with Redis cache and monitoring
+# Hybrid PostgreSQL + File Storage architecture
 # 
 # Environment Configuration:
-# - Uses .env file for most configuration values
-# - Overrides specific values for container networking and production safety
+# - Uses .env file for all configuration values
+# - Container-specific overrides for deployment networking
 
 version: '3.8'
 
 services:
+  # PostgreSQL database
+  database:
+    image: postgres:15-alpine
+    container_name: bin2nlp-database
+    environment:
+      POSTGRES_DB: bin2nlp
+      POSTGRES_USER: bin2nlp
+      POSTGRES_PASSWORD: bin2nlp_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bin2nlp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+      
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
   # Main API service
   api:
     build:
@@ -20,18 +51,19 @@ services:
     env_file:
       - .env
     environment:
-      # Container-specific overrides for production deployment
-      - REDIS_HOST=redis  # Override .env value to use Docker service name
-      - ENVIRONMENT=production  # Ensure production mode regardless of .env
-      - SECURITY_REQUIRE_API_KEYS=false  # Disable authentication in production
+      # Container-specific overrides for deployment
+      - DATABASE_HOST=database  # Override to use Docker service name
+      - ENVIRONMENT=production  # Ensure production mode
+      - SECURITY_REQUIRE_API_KEYS=false  # Disable auth in development
       
     volumes:
-      # Persistent storage for temporary files and logs
+      # Persistent storage for temporary files, logs, and file storage
       - api_uploads:/tmp/uploads
       - api_logs:/var/log/app
+      - api_data:/var/lib/app/data  # File-based storage directory
       
     depends_on:
-      redis:
+      database:
         condition: service_healthy
         
     restart: unless-stopped
@@ -41,7 +73,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 20s
       
     deploy:
       resources:
@@ -52,50 +84,14 @@ services:
           cpus: '0.5'
           memory: 512M
 
-  # Redis cache service
-  redis:
-    image: redis:7.2-alpine
-    container_name: bin2nlp-redis
-    ports:
-      - "6379:6379"
-    command: >
-      redis-server 
-      --maxmemory 256mb 
-      --maxmemory-policy allkeys-lru 
-      --appendonly yes
-      --appendfsync everysec
-    volumes:
-      - redis_data:/data
-      - ./config/redis.conf:/etc/redis/redis.conf:ro
-    restart: unless-stopped
-    
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
-      
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.1'
-          memory: 128M
-
-  # Background processing is handled by FastAPI BackgroundTasks within the API container
-  # No separate worker container needed for current implementation
-
 # Named volumes for persistent data
 volumes:
-  redis_data:
+  postgres_data:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: ./data/redis
+      device: ./data/postgres
       
   api_uploads:
     driver: local
@@ -110,8 +106,15 @@ volumes:
       type: none
       o: bind
       device: ./data/logs
+      
+  api_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/storage
 
-# Custom network for service communication
+# Network for service communication
 networks:
   default:
     driver: bridge

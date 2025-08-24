@@ -3,7 +3,7 @@ Analysis result caching system with TTL management and intelligent invalidation.
 
 Provides efficient caching of binary analysis results with configurable TTL,
 cache key generation based on file hash and analysis configuration, and
-smart invalidation patterns.
+smart invalidation patterns using file-based storage.
 """
 
 import hashlib
@@ -12,12 +12,13 @@ import time
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any, Set, Tuple
 from dataclasses import dataclass
+from pathlib import Path
 
 from ..core.config import Settings, get_settings
 from ..core.exceptions import CacheException
 from ..core.logging import get_logger
 from ..models.shared.enums import AnalysisDepth, AnalysisFocus
-from .base import RedisClient
+from .base import FileStorageClient
 
 
 @dataclass
@@ -50,7 +51,7 @@ class CacheEntry:
 
 class ResultCache:
     """
-    Redis-based analysis result cache with intelligent key generation and TTL management.
+    File-based analysis result cache with intelligent key generation and TTL management.
     
     Features:
     - File hash and configuration-based cache keys
@@ -72,29 +73,39 @@ class ResultCache:
     # Cache version for schema evolution
     CACHE_VERSION = "1.0"
     
-    def __init__(self, redis_client: Optional[RedisClient] = None, settings: Optional[Settings] = None):
+    def __init__(self, storage_client: Optional[FileStorageClient] = None, settings: Optional[Settings] = None):
         """
         Initialize result cache.
         
         Args:
-            redis_client: Redis client instance
+            storage_client: File storage client instance
             settings: Application settings
         """
-        self.redis_client = redis_client
+        self.storage_client = storage_client
         self.settings = settings or get_settings()
         self.logger = get_logger(__name__)
         
         # Cache configuration
-        self.default_ttl = self.settings.cache.analysis_result_ttl_seconds
+        self.default_ttl = getattr(self.settings, 'analysis_result_ttl_seconds', 86400)  # 24 hours
         self.compression_threshold = 1024  # Compress data larger than 1KB
-        self.max_key_length = 250  # Redis key length limit
+        self.max_key_length = 250  # Key length limit
+        
+        # Initialize stats tracking
+        self._stats = {
+            'hits': 0,
+            'misses': 0,
+            'sets': 0,
+            'deletes': 0,
+            'invalidations': 0,
+            'errors': 0
+        }
     
-    async def _get_redis(self) -> RedisClient:
-        """Get Redis client instance."""
-        if self.redis_client is None:
-            from .base import get_redis_client
-            self.redis_client = await get_redis_client()
-        return self.redis_client
+    async def _get_storage(self) -> FileStorageClient:
+        """Get file storage client instance."""
+        if self.storage_client is None:
+            from .base import get_file_storage_client
+            self.storage_client = await get_file_storage_client()
+        return self.storage_client
     
     def _generate_config_hash(self, analysis_config: Dict[str, Any]) -> str:
         """
@@ -145,7 +156,7 @@ class ResultCache:
             config_hash=config_hash
         )
         
-        # Ensure key doesn't exceed Redis limits
+        # Ensure key doesn't exceed limits
         if len(cache_key) > self.max_key_length:
             # Use hash of the full key
             key_hash = hashlib.sha256(cache_key.encode()).hexdigest()[:32]
@@ -212,6 +223,54 @@ class ResultCache:
         
         return tags
     
+    async def _update_tag_sets(self, cache_key: str, tags: Set[str], file_hash: str, operation: str = "add") -> None:
+        """
+        Update tag and file association sets.
+        
+        Args:
+            cache_key: Cache key
+            tags: Set of tags
+            file_hash: File hash
+            operation: "add" or "remove"
+        """
+        try:
+            storage = await self._get_storage()
+            
+            # Update file results set
+            file_set_key = self.FILE_RESULTS_SET.format(file_hash=file_hash)
+            file_set = await storage.get(file_set_key) or set()
+            
+            if operation == "add":
+                file_set.add(cache_key)
+            elif operation == "remove" and cache_key in file_set:
+                file_set.remove(cache_key)
+            
+            if file_set:
+                await storage.set(file_set_key, list(file_set))
+            else:
+                await storage.delete(file_set_key)
+            
+            # Update tag sets
+            for tag in tags:
+                tag_set_key = self.TAG_RESULTS_SET.format(tag=tag)
+                tag_set = await storage.get(tag_set_key) or set()
+                
+                if operation == "add":
+                    tag_set.add(cache_key)
+                elif operation == "remove" and cache_key in tag_set:
+                    tag_set.remove(cache_key)
+                
+                if tag_set:
+                    await storage.set(tag_set_key, list(tag_set))
+                else:
+                    await storage.delete(tag_set_key)
+                    
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to update tag sets: {e}",
+                extra={"cache_key": cache_key, "operation": operation}
+            )
+    
     async def get(self, file_hash: str, analysis_config: Dict[str, Any]) -> Optional[Any]:
         """
         Get cached analysis result.
@@ -224,13 +283,13 @@ class ResultCache:
             Cached analysis result or None if not found/expired
         """
         try:
-            redis = await self._get_redis()
+            storage = await self._get_storage()
             
             config_hash = self._generate_config_hash(analysis_config)
             cache_key = self._generate_cache_key(file_hash, config_hash)
             
             # Get cached data
-            cached_data = await redis.get(cache_key)
+            cached_data = await storage.get(cache_key)
             
             if cached_data is None:
                 await self._update_stats("miss")
@@ -238,10 +297,16 @@ class ResultCache:
             
             # Parse cached result
             try:
-                if isinstance(cached_data, dict):
-                    result_data = cached_data
-                else:
-                    result_data = json.loads(cached_data)
+                if not isinstance(cached_data, dict):
+                    self.logger.warning(
+                        "Invalid cached data format",
+                        extra={"cache_key": cache_key}
+                    )
+                    await self.delete(file_hash, analysis_config)
+                    await self._update_stats("miss")
+                    return None
+                
+                result_data = cached_data
                 
                 # Check cache version compatibility
                 if result_data.get('cache_version') != self.CACHE_VERSION:
@@ -305,7 +370,7 @@ class ResultCache:
             bool: True if cached successfully
         """
         try:
-            redis = await self._get_redis()
+            storage = await self._get_storage()
             
             config_hash = self._generate_config_hash(analysis_config)
             cache_key = self._generate_cache_key(file_hash, config_hash)
@@ -330,42 +395,29 @@ class ResultCache:
                 'access_count': 0
             }
             
-            # Use pipeline for atomic operations
-            async with redis.pipeline() as pipe:
-                # Store the cached result
-                await pipe.set(cache_key, json.dumps(cache_entry), ex=ttl)
-                
-                # Add to file results set
-                file_set_key = self.FILE_RESULTS_SET.format(file_hash=file_hash)
-                await pipe.sadd(file_set_key, cache_key)
-                await pipe.expire(file_set_key, ttl)
-                
-                # Add to tag sets
-                for tag in tags:
-                    tag_set_key = self.TAG_RESULTS_SET.format(tag=tag)
-                    await pipe.sadd(tag_set_key, cache_key)
-                    await pipe.expire(tag_set_key, ttl)
+            # Store the cached result
+            success = await storage.set(cache_key, cache_entry, ttl=ttl)
+            
+            if success:
+                # Update tag and file association sets
+                await self._update_tag_sets(cache_key, tags, file_hash, "add")
                 
                 # Update statistics
-                await pipe.hincrby(self.CACHE_STATS_KEY, "total_cached", 1)
-                await pipe.hincrby(self.CACHE_STATS_KEY, f"cached_depth_{analysis_config.get('depth', 'standard')}", 1)
+                await self._update_cache_stats("total_cached", 1)
+                await self._update_cache_stats(f"cached_depth_{analysis_config.get('depth', 'standard')}", 1)
+                await self._update_stats("set")
                 
-                # Execute pipeline
-                await pipe.execute()
+                self.logger.debug(
+                    "Result cached successfully",
+                    extra={
+                        "cache_key": cache_key,
+                        "file_hash": file_hash[:16],
+                        "ttl": ttl,
+                        "tags": list(tags)
+                    }
+                )
             
-            await self._update_stats("set")
-            
-            self.logger.debug(
-                "Result cached successfully",
-                extra={
-                    "cache_key": cache_key,
-                    "file_hash": file_hash[:16],
-                    "ttl": ttl,
-                    "tags": list(tags)
-                }
-            )
-            
-            return True
+            return success
             
         except Exception as e:
             self.logger.error(
@@ -387,45 +439,35 @@ class ResultCache:
             bool: True if deleted successfully
         """
         try:
-            redis = await self._get_redis()
+            storage = await self._get_storage()
             
             config_hash = self._generate_config_hash(analysis_config)
             cache_key = self._generate_cache_key(file_hash, config_hash)
             
             # Get entry metadata before deletion
-            cached_data = await redis.get(cache_key)
+            cached_data = await storage.get(cache_key)
             if cached_data:
                 try:
-                    entry_data = json.loads(cached_data) if isinstance(cached_data, str) else cached_data
-                    tags = entry_data.get('tags', [])
+                    tags = set(cached_data.get('tags', []))
                     
-                    # Remove from tag sets
-                    async with redis.pipeline() as pipe:
-                        await pipe.delete(cache_key)
-                        
-                        # Remove from file set
-                        file_set_key = self.FILE_RESULTS_SET.format(file_hash=file_hash)
-                        await pipe.srem(file_set_key, cache_key)
-                        
-                        # Remove from tag sets
-                        for tag in tags:
-                            tag_set_key = self.TAG_RESULTS_SET.format(tag=tag)
-                            await pipe.srem(tag_set_key, cache_key)
-                        
-                        await pipe.execute()
+                    # Remove from tag and file sets
+                    await self._update_tag_sets(cache_key, tags, file_hash, "remove")
                     
-                except (json.JSONDecodeError, KeyError):
-                    # Just delete the key if metadata is corrupted
-                    await redis.delete(cache_key)
+                except (KeyError, TypeError):
+                    pass  # Continue with deletion even if metadata is corrupted
             
-            await self._update_stats("delete")
+            # Delete the cache entry
+            deleted_count = await storage.delete(cache_key)
             
-            self.logger.debug(
-                "Cache entry deleted",
-                extra={"cache_key": cache_key, "file_hash": file_hash[:16]}
-            )
+            if deleted_count > 0:
+                await self._update_stats("delete")
+                
+                self.logger.debug(
+                    "Cache entry deleted",
+                    extra={"cache_key": cache_key, "file_hash": file_hash[:16]}
+                )
             
-            return True
+            return deleted_count > 0
             
         except Exception as e:
             self.logger.error(
@@ -445,28 +487,35 @@ class ResultCache:
             int: Number of cache entries invalidated
         """
         try:
-            redis = await self._get_redis()
+            storage = await self._get_storage()
             
             file_set_key = self.FILE_RESULTS_SET.format(file_hash=file_hash)
-            cache_keys = await redis._client.smembers(file_set_key)
+            cache_keys_list = await storage.get(file_set_key)
             
-            if not cache_keys:
+            if not cache_keys_list:
                 return 0
             
+            # Convert to list if needed
+            cache_keys = cache_keys_list if isinstance(cache_keys_list, list) else list(cache_keys_list)
+            
             # Delete all cache keys
-            await redis.delete(*cache_keys)
+            deleted_count = 0
+            for cache_key in cache_keys:
+                count = await storage.delete(cache_key)
+                if count > 0:
+                    deleted_count += count
             
             # Delete the file set
-            await redis.delete(file_set_key)
+            await storage.delete(file_set_key)
             
-            await self._update_stats("invalidate", len(cache_keys))
+            await self._update_stats("invalidate", deleted_count)
             
             self.logger.info(
                 "Invalidated cache entries by file",
-                extra={"file_hash": file_hash[:16], "count": len(cache_keys)}
+                extra={"file_hash": file_hash[:16], "count": deleted_count}
             )
             
-            return len(cache_keys)
+            return deleted_count
             
         except Exception as e:
             self.logger.error(
@@ -486,28 +535,35 @@ class ResultCache:
             int: Number of cache entries invalidated
         """
         try:
-            redis = await self._get_redis()
+            storage = await self._get_storage()
             
             tag_set_key = self.TAG_RESULTS_SET.format(tag=tag)
-            cache_keys = await redis._client.smembers(tag_set_key)
+            cache_keys_list = await storage.get(tag_set_key)
             
-            if not cache_keys:
+            if not cache_keys_list:
                 return 0
             
+            # Convert to list if needed
+            cache_keys = cache_keys_list if isinstance(cache_keys_list, list) else list(cache_keys_list)
+            
             # Delete all cache keys
-            await redis.delete(*cache_keys)
+            deleted_count = 0
+            for cache_key in cache_keys:
+                count = await storage.delete(cache_key)
+                if count > 0:
+                    deleted_count += count
             
             # Delete the tag set
-            await redis.delete(tag_set_key)
+            await storage.delete(tag_set_key)
             
-            await self._update_stats("invalidate", len(cache_keys))
+            await self._update_stats("invalidate", deleted_count)
             
             self.logger.info(
                 "Invalidated cache entries by tag",
-                extra={"tag": tag, "count": len(cache_keys)}
+                extra={"tag": tag, "count": deleted_count}
             )
             
-            return len(cache_keys)
+            return deleted_count
             
         except Exception as e:
             self.logger.error(
@@ -527,13 +583,13 @@ class ResultCache:
             Dictionary with cache entry metadata
         """
         try:
-            redis = await self._get_redis()
+            storage = await self._get_storage()
             
-            cached_data = await redis.get(cache_key)
-            if not cached_data:
+            cached_data = await storage.get(cache_key)
+            if not cached_data or not isinstance(cached_data, dict):
                 return None
             
-            entry_data = json.loads(cached_data) if isinstance(cached_data, str) else cached_data
+            entry_data = cached_data
             
             # Calculate derived fields
             current_time = time.time()
@@ -569,20 +625,16 @@ class ResultCache:
             int: Number of expired entries cleaned up
         """
         try:
-            redis = await self._get_redis()
+            storage = await self._get_storage()
+            
+            # File storage handles expiration automatically through its cleanup loop
+            # So we just update the last cleanup timestamp
             current_time = time.time()
-            cleaned_count = 0
             
-            # This is a simplified cleanup - in practice you'd want to iterate through
-            # known cache keys or use Redis key expiration
+            await self._update_cache_stats("last_cleanup", str(int(current_time)))
             
-            # Get cache statistics
-            stats = await redis._client.hgetall(self.CACHE_STATS_KEY)
-            if stats:
-                stats['last_cleanup'] = str(int(current_time))
-                await redis._client.hset(self.CACHE_STATS_KEY, mapping=stats)
-            
-            return cleaned_count
+            # Return 0 since cleanup is handled automatically
+            return 0
             
         except Exception as e:
             self.logger.error(
@@ -599,33 +651,36 @@ class ResultCache:
             Dictionary with cache statistics
         """
         try:
-            redis = await self._get_redis()
+            storage = await self._get_storage()
             
-            # Get basic stats
-            stats = await redis._client.hgetall(self.CACHE_STATS_KEY) or {}
+            # Get cached stats
+            stats = await storage.get(self.CACHE_STATS_KEY) or {}
+            
+            # Merge with in-memory stats
+            all_stats = {**stats, **self._stats}
             
             # Calculate hit ratio
-            hits = int(stats.get('hits', 0))
-            misses = int(stats.get('misses', 0))
+            hits = int(all_stats.get('hits', 0))
+            misses = int(all_stats.get('misses', 0))
             total_requests = hits + misses
             hit_ratio = (hits / total_requests * 100) if total_requests > 0 else 0
             
-            # Get memory usage approximation
-            info = await redis.info('memory')
-            used_memory = info.get('used_memory', 0)
+            # Get storage stats
+            storage_stats = storage.get_stats()
             
             return {
                 'hit_ratio_percent': round(hit_ratio, 2),
                 'total_requests': total_requests,
                 'hits': hits,
                 'misses': misses,
-                'cache_sets': int(stats.get('sets', 0)),
-                'cache_deletes': int(stats.get('deletes', 0)),
-                'cache_invalidations': int(stats.get('invalidations', 0)),
-                'cache_errors': int(stats.get('errors', 0)),
-                'redis_memory_bytes': used_memory,
-                'last_cleanup': stats.get('last_cleanup'),
-                'statistics': {k: int(v) if v.isdigit() else v for k, v in stats.items()},
+                'cache_sets': int(all_stats.get('sets', 0)),
+                'cache_deletes': int(all_stats.get('deletes', 0)),
+                'cache_invalidations': int(all_stats.get('invalidations', 0)),
+                'cache_errors': int(all_stats.get('errors', 0)),
+                'storage_size_bytes': storage_stats.get('storage_stats', {}).get('total_size_bytes', 0),
+                'storage_file_count': storage_stats.get('storage_stats', {}).get('file_count', 0),
+                'last_cleanup': all_stats.get('last_cleanup'),
+                'statistics': {k: int(v) if isinstance(v, str) and v.isdigit() else v for k, v in all_stats.items()},
                 'timestamp': time.time()
             }
             
@@ -639,8 +694,6 @@ class ResultCache:
     async def _update_stats(self, operation: str, count: int = 1) -> None:
         """Update cache operation statistics."""
         try:
-            redis = await self._get_redis()
-            
             stat_key = {
                 'hit': 'hits',
                 'miss': 'misses', 
@@ -650,7 +703,33 @@ class ResultCache:
                 'error': 'errors'
             }.get(operation, operation)
             
-            await redis._client.hincrby(self.CACHE_STATS_KEY, stat_key, count)
+            # Update in-memory stats
+            if stat_key in self._stats:
+                self._stats[stat_key] += count
+            
+            # Also update persistent stats periodically
+            await self._update_cache_stats(stat_key, count)
+            
+        except Exception:
+            pass  # Don't fail operations due to stats errors
+    
+    async def _update_cache_stats(self, key: str, increment: int = 1) -> None:
+        """Update persistent cache statistics."""
+        try:
+            storage = await self._get_storage()
+            
+            # Get current stats
+            stats = await storage.get(self.CACHE_STATS_KEY) or {}
+            
+            # Update the specific stat
+            if isinstance(increment, int):
+                current_value = int(stats.get(key, 0))
+                stats[key] = current_value + increment
+            else:
+                stats[key] = increment
+            
+            # Save updated stats
+            await storage.set(self.CACHE_STATS_KEY, stats)
             
         except Exception:
             pass  # Don't fail operations due to stats errors
@@ -658,16 +737,21 @@ class ResultCache:
     async def _update_access_stats(self, cache_key: str) -> None:
         """Update access statistics for cache entry."""
         try:
-            redis = await self._get_redis()
+            storage = await self._get_storage()
             
-            # This is a simplified implementation
-            # In practice, you might store access stats separately to avoid
-            # constantly updating cached data
-            
-            current_time = time.time()
-            await redis._client.hincrby(f"access:{cache_key}", "count", 1)
-            await redis._client.hset(f"access:{cache_key}", "last_access", str(current_time))
-            await redis._client.expire(f"access:{cache_key}", self.default_ttl)
+            # Get the cache entry
+            cached_data = await storage.get(cache_key)
+            if cached_data and isinstance(cached_data, dict):
+                # Update access count and timestamp
+                cached_data['access_count'] = cached_data.get('access_count', 0) + 1
+                cached_data['last_accessed'] = time.time()
+                
+                # Save updated entry (without changing TTL)
+                await storage.set(cache_key, cached_data, xx=True)  # Only update existing
             
         except Exception:
             pass  # Don't fail operations due to access stats errors
+
+
+# Compatibility aliases for existing code that imports from this module
+RedisClient = FileStorageClient

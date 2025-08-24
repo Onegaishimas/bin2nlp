@@ -49,10 +49,8 @@ spec:
           value: "production"
         - name: WORKERS
           value: "4"
-        - name: REDIS_HOST
-          value: "bin2nlp-redis"
-        - name: REDIS_PORT
-          value: "6379"
+        - name: STORAGE_BASE_PATH
+          value: "/var/lib/app/data"
         resources:
           requests:
             memory: "512Mi"
@@ -105,6 +103,8 @@ spec:
           mountPath: /tmp/uploads
         - name: app-logs
           mountPath: /var/log/app
+        - name: app-data
+          mountPath: /var/lib/app/data
         
         securityContext:
           allowPrivilegeEscalation: false
@@ -122,6 +122,9 @@ spec:
       - name: app-logs
         emptyDir:
           sizeLimit: 100Mi
+      - name: app-data
+        emptyDir:
+          sizeLimit: 5Gi
       
       # Node selection and affinity rules
       nodeSelector:
@@ -159,69 +162,7 @@ spec:
     app: bin2nlp
     component: api
 
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: bin2nlp-redis
-  labels:
-    app: bin2nlp
-    component: redis
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: bin2nlp
-      component: redis
-  template:
-    metadata:
-      labels:
-        app: bin2nlp
-        component: redis
-    spec:
-      containers:
-      - name: redis
-        image: redis:7.2-alpine
-        ports:
-        - name: redis
-          containerPort: 6379
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
-        livenessProbe:
-          tcpSocket:
-            port: redis
-          initialDelaySeconds: 30
-          periodSeconds: 30
-        readinessProbe:
-          exec:
-            command:
-            - redis-cli
-            - ping
-          initialDelaySeconds: 5
-          periodSeconds: 10
 
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: bin2nlp-redis
-  labels:
-    app: bin2nlp
-    component: redis
-spec:
-  type: ClusterIP
-  ports:
-  - name: redis
-    port: 6379
-    targetPort: redis
-  selector:
-    app: bin2nlp
-    component: redis
 
 ---
 # HorizontalPodAutoscaler for API pods based on CPU and memory

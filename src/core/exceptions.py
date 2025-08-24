@@ -207,64 +207,70 @@ class ConfigurationException(BinaryAnalysisException):
         self.config_value = config_value
 
 
-class CacheException(BinaryAnalysisException):
+class StorageException(BinaryAnalysisException):
     """
-    Exception raised for cache operation failures.
+    Exception raised for storage operation failures.
     
-    Used when Redis operations, cache invalidation, or cache
+    Used when database operations, file storage operations, or data
     consistency checks fail.
     """
     
     def __init__(
         self,
         message: str,
-        cache_key: Optional[str] = None,
+        storage_key: Optional[str] = None,
         operation: Optional[str] = None,
-        redis_error: Optional[str] = None,
+        storage_error: Optional[str] = None,
         **kwargs
     ):
         """
-        Initialize cache exception with cache context.
+        Initialize storage exception with storage context.
         
         Args:
-            message: Cache error message
-            cache_key: Cache key involved in operation
-            operation: Cache operation that failed (get, set, delete, etc.)
-            redis_error: Raw Redis error message
+            message: Storage error message
+            storage_key: Storage key involved in operation
+            operation: Storage operation that failed (get, set, delete, etc.)
+            storage_error: Raw storage backend error message
             **kwargs: Additional context for base exception
         """
         details = kwargs.get('details', {})
-        if cache_key:
-            details['cache_key'] = cache_key
+        if storage_key:
+            details['storage_key'] = storage_key
         if operation:
             details['operation'] = operation
-        if redis_error:
-            details['redis_error'] = redis_error
+        if storage_error:
+            details['storage_error'] = storage_error
         
         kwargs['details'] = details
-        kwargs['error_code'] = kwargs.get('error_code', 'CACHE_ERROR')
-        kwargs['component'] = kwargs.get('component', 'cache')
+        kwargs['error_code'] = kwargs.get('error_code', 'STORAGE_ERROR')
+        kwargs['component'] = kwargs.get('component', 'storage')
         super().__init__(message, **kwargs)
         
-        self.cache_key = cache_key
+        self.storage_key = storage_key
         self.operation = operation
-        self.redis_error = redis_error
+        self.storage_error = storage_error
 
 
-class CacheConnectionError(CacheException):
-    """Exception raised when Redis connection fails."""
+class DatabaseConnectionError(StorageException):
+    """Exception raised when database connection fails."""
     
     def __init__(self, message: str, **kwargs):
-        kwargs['error_code'] = kwargs.get('error_code', 'CACHE_CONNECTION_ERROR')
+        kwargs['error_code'] = kwargs.get('error_code', 'DATABASE_CONNECTION_ERROR')
         super().__init__(message, **kwargs)
 
 
-class CacheTimeoutError(CacheException):
-    """Exception raised when Redis operations timeout."""
+class DatabaseTimeoutError(StorageException):
+    """Exception raised when database operations timeout."""
     
     def __init__(self, message: str, **kwargs):
-        kwargs['error_code'] = kwargs.get('error_code', 'CACHE_TIMEOUT_ERROR')
+        kwargs['error_code'] = kwargs.get('error_code', 'DATABASE_TIMEOUT_ERROR')
         super().__init__(message, **kwargs)
+
+
+# Compatibility aliases for existing code
+CacheException = StorageException
+CacheConnectionError = DatabaseConnectionError  
+CacheTimeoutError = DatabaseTimeoutError
 
 
 class ProcessingException(BinaryAnalysisException):
@@ -786,7 +792,7 @@ def should_retry(exception: Exception) -> bool:
         True if operation should be retried, False otherwise
     """
     # Retryable exceptions
-    retryable_types = (CacheException, ProcessingException)
+    retryable_types = (StorageException, ProcessingException)
     
     # Non-retryable exceptions
     non_retryable_types = (
@@ -839,7 +845,7 @@ def get_http_status_code(exception: Exception) -> int:
     if isinstance(exception, (AnalysisException, ProcessingException)):
         return 422  # Unprocessable Entity
     
-    if isinstance(exception, (CacheException, ConfigurationException)):
+    if isinstance(exception, (StorageException, ConfigurationException)):
         return 500  # Internal Server Error
     
     # Default to Internal Server Error for unknown exceptions
