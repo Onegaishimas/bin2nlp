@@ -152,13 +152,12 @@ async def process_decompilation_job(job_id: str, file_path: str, analysis_config
         await job_queue.complete_job(job_id, "background-worker")
         
         # Store results in cache for retrieval
-        from ...cache.base import get_redis_client
-        import json
-        redis = await get_redis_client()
-        await redis.set(
+        from ...cache.result_cache import ResultCache
+        result_cache = ResultCache()
+        await result_cache.set(
             f"result:{job_id}",
-            json.dumps(result_summary),  # Use proper JSON serialization
-            ttl=3600  # 1 hour TTL
+            result_summary,  # ResultCache handles JSON serialization
+            ttl_seconds=3600  # 1 hour TTL
         )
         
         logger.info(f"Completed decompilation job {job_id}")
@@ -318,29 +317,17 @@ async def get_decompilation_result(
     # If job is completed, try to get results
     if "completed" in status_str:
         try:
-            from ...cache.base import get_redis_client
-            redis = await get_redis_client()
-            result_data = await redis.get(f"result:{job_id}")
+            from ...cache.result_cache import ResultCache
+            result_cache = ResultCache()
+            result_data = await result_cache.get(f"result:{job_id}")
         except Exception as e:
-            logger.error(f"Failed to retrieve result data from Redis for job {job_id}: {e}")
+            logger.error(f"Failed to retrieve result data from cache for job {job_id}: {e}")
             response["message"] = "Decompilation completed but results retrieval failed"
         else:
-            # Parse the result data (handle both JSON and Python string formats)
+            # ResultCache already handles JSON parsing and returns the actual object
             if result_data:
-                import json
-                try:
-                    # Try JSON parsing first (new format)
-                    response["results"] = json.loads(result_data)
-                    response["message"] = "Decompilation completed successfully"
-                except json.JSONDecodeError:
-                    # Fall back to eval for old Python string format (backward compatibility)
-                    try:
-                        logger.info(f"JSON parsing failed for job {job_id}, attempting Python eval fallback")
-                        response["results"] = eval(result_data)  # Safe eval of dict string
-                        response["message"] = "Decompilation completed successfully"
-                    except (SyntaxError, ValueError, NameError) as e:
-                        logger.error(f"Failed to parse result data for job {job_id} with both JSON and eval: {e}")
-                        response["message"] = "Decompilation completed but results parsing failed"
+                response["results"] = result_data
+                response["message"] = "Decompilation completed successfully"
             else:
                 response["message"] = "Decompilation completed but results not found"
     elif "failed" in status_str:

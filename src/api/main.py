@@ -68,11 +68,17 @@ async def lifespan(app: FastAPI):
     
     # Initialize components
     try:
-        # Test Redis connection
-        from ..cache.base import get_redis_client
-        redis_client = await get_redis_client()
-        await redis_client.ping()
-        logger.info("Redis connection established")
+        # Test Database connection
+        from ..database.connection import get_database, init_database
+        await init_database(settings)
+        db = await get_database()
+        
+        # Test connection with a simple query
+        result = await db.fetch_one("SELECT 1 as test")
+        if result and result['test'] == 1:
+            logger.info("PostgreSQL database connection established")
+        else:
+            logger.warning("PostgreSQL database connection test failed")
         
         # Initialize LLM provider factory
         from ..llm.providers.factory import LLMProviderFactory
@@ -106,10 +112,10 @@ async def lifespan(app: FastAPI):
                 pass
             logger.info("Alert monitoring background task stopped")
         
-        # Cleanup Redis connections
-        redis_client = await get_redis_client()
-        await redis_client.disconnect()
-        logger.info("Redis connections closed")
+        # Cleanup Database connections
+        from ..database.connection import close_database
+        await close_database()
+        logger.info("PostgreSQL database connections closed")
         
         # Cleanup LLM providers
         factory = LLMProviderFactory()
@@ -138,7 +144,7 @@ def create_app() -> FastAPI:
         ### Key Features
         - **Multi-format support**: PE, ELF, Mach-O binary analysis
         - **Multi-LLM providers**: OpenAI, Anthropic, Google Gemini integration
-        - **Scalable architecture**: Redis caching, async processing
+        - **Scalable architecture**: PostgreSQL database, file storage, async processing
         - **Production ready**: Authentication, rate limiting, monitoring
 
         ### Authentication

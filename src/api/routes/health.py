@@ -14,7 +14,8 @@ from pydantic import BaseModel, Field
 from ...core.config import get_settings
 from ...core.logging import get_logger
 from ...core.exceptions import BinaryAnalysisException
-from ...cache.base import get_redis_client
+from ...cache.base import get_file_storage_client
+from ...database.connection import get_database
 from ...llm.providers.factory import LLMProviderFactory
 
 
@@ -55,24 +56,49 @@ async def health_check():
     services_status = {}
     overall_status = "healthy"
     
-    # Check Redis connection
+    # Check Database connection
     try:
-        redis_client = await get_redis_client()
-        is_healthy = await redis_client.health_check()
-        if is_healthy:
-            services_status["redis"] = {
+        db = await get_database()
+        result = await db.fetch_one("SELECT 1 as test")
+        if result and result['test'] == 1:
+            services_status["database"] = {
                 "status": "healthy",
+                "type": "postgresql",
                 "response_time_ms": 1  # Health check is very fast
             }
         else:
-            services_status["redis"] = {
+            services_status["database"] = {
                 "status": "unhealthy",
-                "error": "Health check failed"
+                "error": "Database query failed"
             }
             overall_status = "degraded"
     except Exception as e:
-        logger.error(f"Redis health check failed: {e}")
-        services_status["redis"] = {
+        logger.error(f"Database health check failed: {e}")
+        services_status["database"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+        overall_status = "degraded"
+    
+    # Check File Storage
+    try:
+        storage_client = await get_file_storage_client()
+        is_healthy = await storage_client.health_check()
+        if is_healthy:
+            services_status["storage"] = {
+                "status": "healthy",
+                "type": "file_system",
+                "response_time_ms": 1
+            }
+        else:
+            services_status["storage"] = {
+                "status": "unhealthy", 
+                "error": "Storage health check failed"
+            }
+            overall_status = "degraded"
+    except Exception as e:
+        logger.error(f"Storage health check failed: {e}")
+        services_status["storage"] = {
             "status": "unhealthy",
             "error": str(e)
         }
@@ -129,11 +155,17 @@ async def readiness_check():
     503 if not ready.
     """
     try:
-        # Check Redis
-        redis_client = await get_redis_client()
-        is_healthy = await redis_client.health_check()
+        # Check Database
+        db = await get_database()
+        result = await db.fetch_one("SELECT 1 as test")
+        if not (result and result['test'] == 1):
+            raise Exception("Database health check failed")
+        
+        # Check File Storage
+        storage_client = await get_file_storage_client()
+        is_healthy = await storage_client.health_check()
         if not is_healthy:
-            raise Exception("Redis health check failed")
+            raise Exception("Storage health check failed")
         
         # Note: We don't require LLM providers for readiness
         # The system can handle basic decompilation without LLM translation

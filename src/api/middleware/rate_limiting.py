@@ -15,7 +15,7 @@ from starlette.responses import Response
 
 from ...core.config import get_settings
 from ...core.logging import get_logger
-from ...cache.base import get_redis_client
+from ...cache.rate_limiter import RateLimiter
 from .auth import get_current_user
 
 logger = get_logger(__name__)
@@ -36,156 +36,105 @@ class RateLimitExceeded(HTTPException):
 
 class SlidingWindowRateLimiter:
     """
-    Sliding window rate limiter with Redis backend.
+    Sliding window rate limiter with PostgreSQL backend.
     
     Provides more accurate rate limiting than fixed window
     and supports burst allowances.
     """
     
     def __init__(self):
-        self.redis = None
+        self.rate_limiter = RateLimiter()
         self.settings = get_settings()
-    
-    async def _get_redis(self):
-        """Get Redis client, initializing if needed."""
-        if self.redis is None:
-            try:
-                self.redis = await get_redis_client()
-            except Exception as e:
-                logger.warning(f"Failed to connect to Redis for rate limiting: {e}")
-                return None
-        return self.redis
     
     async def check_rate_limit(
         self,
         identifier: str,
         window_seconds: int,
         max_requests: int,
-        burst_allowance: int = 0
+        burst_allowance: int = 0,
+        tier: str = "basic"
     ) -> Tuple[bool, int, Dict[str, int]]:
         """
-        Check if request is within rate limits.
+        Check if request is within rate limits using PostgreSQL rate limiter.
         
         Args:
             identifier: Unique identifier for rate limiting (user_id, IP, etc.)
             window_seconds: Time window in seconds
             max_requests: Maximum requests allowed in window
             burst_allowance: Additional requests allowed for burst traffic
+            tier: User tier for rate limiting
             
         Returns:
             Tuple of (allowed, retry_after_seconds, stats)
         """
-        now = time.time()
-        window_start = now - window_seconds
-        
-        # Redis key for this rate limit window
-        key = f"rate_limit:{identifier}:{window_seconds}"
-        
-        # Get Redis client and use pipeline for atomic operations
-        redis = await self._get_redis()
-        if redis is None:
-            # Redis not available - allow request but log warning
-            logger.warning("Rate limiting disabled: Redis not available")
+        try:
+            # Use our new PostgreSQL-based rate limiter
+            result = await self.rate_limiter.check_rate_limit(
+                identifier=identifier,
+                tier=tier,
+                cost=1  # Each request costs 1 unit
+            )
+            
+            if result.allowed:
+                return True, 0, {
+                    "current": result.current_usage,
+                    "limit": result.limit,
+                    "burst_allowance": burst_allowance,
+                    "window_seconds": window_seconds,
+                    "remaining": result.remaining
+                }
+            else:
+                return False, result.retry_after_seconds or window_seconds, {
+                    "current": result.current_usage,
+                    "limit": result.limit,
+                    "burst_allowance": burst_allowance,
+                    "window_seconds": window_seconds,
+                    "remaining": 0
+                }
+                
+        except Exception as e:
+            logger.error(f"Rate limiting error: {e}")
+            # Fail open - allow request when rate limiter fails
             return True, 0, {
                 "current": 0,
                 "limit": max_requests,
                 "burst_allowance": burst_allowance,
                 "window_seconds": window_seconds,
                 "remaining": max_requests,
-                "warning": "rate_limiting_disabled"
+                "warning": "rate_limiting_error"
             }
-        
-        pipe = await redis.pipeline()
-        
-        # Remove expired entries
-        pipe.zremrangebyscore(key, 0, window_start)
-        
-        # Count current requests in window
-        pipe.zcard(key)
-        
-        # Execute pipeline
-        results = await pipe.execute()
-        current_count = results[1]
-        
-        # Check if within limits (including burst)
-        effective_limit = max_requests + burst_allowance
-        
-        if current_count >= effective_limit:
-            # Calculate retry after based on oldest request in window
-            oldest_requests = await redis.zrange(key, 0, 0, withscores=True)
-            if oldest_requests:
-                oldest_time = oldest_requests[0][1]
-                retry_after = int(window_seconds - (now - oldest_time)) + 1
-            else:
-                retry_after = window_seconds
-            
-            return False, retry_after, {
-                "current": current_count,
-                "limit": max_requests,
-                "burst_allowance": burst_allowance,
-                "window_seconds": window_seconds
-            }
-        
-        # Add current request to window
-        await redis.zadd(key, {str(now): now})
-        
-        # Set expiry on key (cleanup)
-        await redis.expire(key, window_seconds + 60)
-        
-        return True, 0, {
-            "current": current_count + 1,
-            "limit": max_requests,
-            "burst_allowance": burst_allowance,
-            "window_seconds": window_seconds,
-            "remaining": effective_limit - current_count - 1
-        }
     
     async def get_rate_limit_status(
         self,
         identifier: str,
-        window_seconds: int
+        tier: str = "basic"
     ) -> Dict[str, int]:
         """
         Get current rate limit status without consuming a request.
         
         Args:
             identifier: Rate limit identifier
-            window_seconds: Time window in seconds
+            tier: User tier for rate limiting
             
         Returns:
             Dictionary with current status
         """
-        now = time.time()
-        window_start = now - window_seconds
-        key = f"rate_limit:{identifier}:{window_seconds}"
-        
-        # Get Redis client
-        redis = await self._get_redis()
-        if redis is None:
-            # Redis not available - return default status
+        try:
+            # Use our PostgreSQL rate limiter to get status
+            status = await self.rate_limiter.get_rate_limit_status(
+                identifier=identifier,
+                tier=tier
+            )
+            return status
+        except Exception as e:
+            logger.error(f"Error getting rate limit status: {e}")
+            now = time.time()
             return {
                 "current": 0,
-                "reset_at": int(now + window_seconds),
-                "window_seconds": window_seconds,
-                "warning": "rate_limiting_disabled"
+                "reset_at": int(now + 60),
+                "window_seconds": 60,
+                "warning": "rate_limiting_error"
             }
-        
-        # Clean expired entries and count current
-        await redis.zremrangebyscore(key, 0, window_start)
-        current_count = await redis.zcard(key)
-        
-        # Get window reset time
-        oldest_requests = await redis.zrange(key, 0, 0, withscores=True)
-        reset_time = int(now + window_seconds)
-        if oldest_requests:
-            oldest_time = oldest_requests[0][1]
-            reset_time = int(oldest_time + window_seconds)
-        
-        return {
-            "current": current_count,
-            "reset_at": reset_time,
-            "window_seconds": window_seconds
-        }
 
 
 class RateLimitingMiddleware(BaseHTTPMiddleware):
@@ -224,7 +173,8 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
                 identifier=f"{identifier}:{limit_config['name']}",
                 window_seconds=limit_config["window_seconds"],
                 max_requests=limit_config["max_requests"],
-                burst_allowance=limit_config.get("burst_allowance", 0)
+                burst_allowance=limit_config.get("burst_allowance", 0),
+                tier=tier
             )
             
             if not allowed:
@@ -254,7 +204,7 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
             primary_limit = limits[0]  # Use first (most restrictive) limit for headers
             limit_stats = await self.rate_limiter.get_rate_limit_status(
                 identifier=f"{identifier}:{primary_limit['name']}",
-                window_seconds=primary_limit["window_seconds"]
+                tier=tier
             )
             
             response.headers.update({
@@ -378,22 +328,12 @@ class LLMProviderRateLimiter:
     """
     Specialized rate limiter for LLM provider API calls.
     
-    Manages provider-specific rate limits and token usage.
+    Manages provider-specific rate limits and token usage using PostgreSQL.
     """
     
     def __init__(self):
-        self.redis = None
+        self.rate_limiter = RateLimiter()
         self.settings = get_settings()
-    
-    async def _get_redis(self):
-        """Get Redis client, initializing if needed."""
-        if self.redis is None:
-            try:
-                self.redis = await get_redis_client()
-            except Exception as e:
-                logger.warning(f"Failed to connect to Redis for rate limiting: {e}")
-                return None
-        return self.redis
     
     async def check_llm_rate_limit(
         self,
@@ -412,31 +352,43 @@ class LLMProviderRateLimiter:
         Returns:
             Tuple of (allowed, reason_if_denied, usage_stats)
         """
-        now = int(time.time())
-        
-        # Check requests per minute
-        req_key = f"llm_rate:{user_id}:{provider_id}:requests:60"
-        req_count = await self._get_window_count(req_key, now, 60)
-        
-        if req_count >= self.settings.llm.requests_per_minute:
-            return False, "LLM requests per minute limit exceeded", {
-                "requests_used": req_count,
-                "requests_limit": self.settings.llm.requests_per_minute
-            }
-        
-        # Check tokens per minute
-        if estimated_tokens > 0:
-            token_key = f"llm_rate:{user_id}:{provider_id}:tokens:60"
-            token_count = await self._get_window_count(token_key, now, 60)
+        try:
+            # Check requests per minute using the PostgreSQL rate limiter
+            req_identifier = f"llm_rate:{user_id}:{provider_id}:requests"
+            result = await self.rate_limiter.check_rate_limit(
+                identifier=req_identifier,
+                tier="llm",  # Use special LLM tier
+                cost=1
+            )
             
-            if token_count + estimated_tokens > self.settings.llm.tokens_per_minute:
-                return False, "LLM tokens per minute limit exceeded", {
-                    "tokens_used": token_count,
-                    "tokens_limit": self.settings.llm.tokens_per_minute,
-                    "estimated_tokens": estimated_tokens
+            if not result.allowed:
+                return False, "LLM requests per minute limit exceeded", {
+                    "requests_used": result.current_usage,
+                    "requests_limit": result.limit
                 }
-        
-        return True, "", {}
+            
+            # Check tokens per minute if estimated_tokens provided
+            if estimated_tokens > 0:
+                token_identifier = f"llm_rate:{user_id}:{provider_id}:tokens"
+                token_result = await self.rate_limiter.check_rate_limit(
+                    identifier=token_identifier,
+                    tier="llm",
+                    cost=estimated_tokens
+                )
+                
+                if not token_result.allowed:
+                    return False, "LLM tokens per minute limit exceeded", {
+                        "tokens_used": token_result.current_usage,
+                        "tokens_limit": token_result.limit,
+                        "estimated_tokens": estimated_tokens
+                    }
+            
+            return True, "", {}
+            
+        except Exception as e:
+            logger.error(f"Error checking LLM rate limit: {e}")
+            # Fail open - allow request when rate limiter fails
+            return True, "", {}
     
     async def record_llm_usage(
         self,
@@ -452,46 +404,26 @@ class LLMProviderRateLimiter:
             provider_id: LLM provider
             tokens_used: Actual tokens consumed
         """
-        now = int(time.time())
-        
-        # Record request
-        req_key = f"llm_rate:{user_id}:{provider_id}:requests:60"
-        await self._increment_window(req_key, now, 60)
-        
-        # Record token usage
-        if tokens_used > 0:
-            token_key = f"llm_rate:{user_id}:{provider_id}:tokens:60"
-            await self._increment_window(token_key, now, 60, tokens_used)
-    
-    async def _get_window_count(self, key: str, now: int, window_seconds: int) -> int:
-        """Get current count in sliding window."""
-        redis = await self._get_redis()
-        if not redis:
-            return 0
+        try:
+            # Record request
+            req_identifier = f"llm_rate:{user_id}:{provider_id}:requests"
+            await self.rate_limiter.check_rate_limit(
+                identifier=req_identifier,
+                tier="llm",
+                cost=1
+            )
             
-        window_start = now - window_seconds
-        
-        # Clean expired entries and count
-        await redis.zremrangebyscore(key, 0, window_start)
-        return await redis.zcard(key)
-    
-    async def _increment_window(
-        self,
-        key: str,
-        now: int,
-        window_seconds: int,
-        increment: int = 1
-    ) -> None:
-        """Add to sliding window counter."""
-        redis = await self._get_redis()
-        if not redis:
-            return
-            
-        # Add current usage
-        await redis.zadd(key, {f"{now}:{increment}": now})
-        
-        # Set expiry
-        await redis.expire(key, window_seconds + 60)
+            # Record token usage
+            if tokens_used > 0:
+                token_identifier = f"llm_rate:{user_id}:{provider_id}:tokens"
+                await self.rate_limiter.check_rate_limit(
+                    identifier=token_identifier,
+                    tier="llm",
+                    cost=tokens_used
+                )
+                
+        except Exception as e:
+            logger.error(f"Error recording LLM usage: {e}")
     
     async def get_llm_usage_stats(
         self,
@@ -508,29 +440,39 @@ class LLMProviderRateLimiter:
         Returns:
             Dictionary with usage statistics
         """
-        stats = {}
-        providers = [provider_id] if provider_id else self.settings.llm.enabled_providers
-        
-        for provider in providers:
-            now = int(time.time())
+        try:
+            stats = {}
+            providers = [provider_id] if provider_id else getattr(self.settings.llm, 'enabled_providers', ['openai'])
             
-            # Get current usage
-            req_key = f"llm_rate:{user_id}:{provider}:requests:60"
-            token_key = f"llm_rate:{user_id}:{provider}:tokens:60"
+            for provider in providers:
+                # Get request usage stats
+                req_identifier = f"llm_rate:{user_id}:{provider}:requests"
+                req_status = await self.rate_limiter.get_rate_limit_status(
+                    identifier=req_identifier,
+                    tier="llm"
+                )
+                
+                # Get token usage stats
+                token_identifier = f"llm_rate:{user_id}:{provider}:tokens"
+                token_status = await self.rate_limiter.get_rate_limit_status(
+                    identifier=token_identifier,
+                    tier="llm"
+                )
+                
+                stats[provider] = {
+                    "requests_used": req_status.get("current", 0),
+                    "requests_limit": getattr(self.settings.llm, 'requests_per_minute', 60),
+                    "requests_remaining": req_status.get("remaining", 0),
+                    "tokens_used": token_status.get("current", 0),
+                    "tokens_limit": getattr(self.settings.llm, 'tokens_per_minute', 60000),
+                    "tokens_remaining": token_status.get("remaining", 0)
+                }
             
-            requests_used = await self._get_window_count(req_key, now, 60)
-            tokens_used = await self._get_window_count(token_key, now, 60)
+            return stats
             
-            stats[provider] = {
-                "requests_used": requests_used,
-                "requests_limit": self.settings.llm.requests_per_minute,
-                "requests_remaining": max(0, self.settings.llm.requests_per_minute - requests_used),
-                "tokens_used": tokens_used,
-                "tokens_limit": self.settings.llm.tokens_per_minute,
-                "tokens_remaining": max(0, self.settings.llm.tokens_per_minute - tokens_used)
-            }
-        
-        return stats
+        except Exception as e:
+            logger.error(f"Error getting LLM usage stats: {e}")
+            return {}
 
 
 # Convenience function for endpoint-specific rate limiting
@@ -577,7 +519,8 @@ async def check_endpoint_rate_limit(request: Request, endpoint_type: str = "stan
         identifier=f"{identifier}:{endpoint_type}",
         window_seconds=window,
         max_requests=limit,
-        burst_allowance=tier_limits.get("burst", 0) // 2
+        burst_allowance=tier_limits.get("burst", 0) // 2,
+        tier=tier
     )
     
     if not allowed:

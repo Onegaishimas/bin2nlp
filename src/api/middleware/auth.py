@@ -17,7 +17,7 @@ from starlette.responses import Response
 
 from ...core.config import get_settings
 from ...core.logging import get_logger
-from ...cache.base import get_redis_client
+from ...database.connection import get_database
 
 logger = get_logger(__name__)
 
@@ -43,30 +43,15 @@ class APIKeyManager:
     """
     Manages API key validation, storage, and metadata.
     
-    Uses Redis for fast key lookups and usage tracking.
+    Uses PostgreSQL database for fast key lookups and usage tracking.
     """
     
     def __init__(self):
-        self.redis = None  # Will be initialized async
         self.settings = get_settings()
     
-    async def _ensure_redis_client(self):
-        """Ensure Redis client is initialized."""
-        if self.redis is None:
-            self.redis = await get_redis_client()
-    
-    def _decode_redis_value(self, value):
-        """Helper to decode Redis values that might be bytes."""
-        if isinstance(value, bytes):
-            return value.decode('utf-8')
-        return value
-    
-    def _decode_redis_dict(self, data):
-        """Helper to decode Redis dictionary with byte keys/values."""
-        return {
-            self._decode_redis_value(k): self._decode_redis_value(v)
-            for k, v in data.items()
-        }
+    async def _get_database(self):
+        """Get database connection."""
+        return await get_database()
     
     async def validate_api_key(self, api_key: str) -> Optional[Dict[str, Any]]:
         """
@@ -79,48 +64,41 @@ class APIKeyManager:
             Dictionary with user info if valid, None if invalid
         """
         try:
-            await self._ensure_redis_client()
             if not api_key or not api_key.startswith(self.settings.security.api_key_prefix):
                 return None
+            
+            db = await self._get_database()
             
             # Hash the API key for secure storage lookup
             key_hash = self._hash_api_key(api_key)
             
-            # Look up key metadata in Redis
-            raw_key_data = await self.redis.hgetall(f"api_key:{key_hash}")
-            if not raw_key_data:
+            # Look up key metadata in PostgreSQL
+            result = await db.fetch_one("""
+                SELECT user_id, key_id, tier, permissions, status,
+                       created_at, last_used_at, expires_at
+                FROM api_keys 
+                WHERE key_hash = :key_hash AND status = 'active'
+                AND (expires_at IS NULL OR expires_at > NOW())
+            """, {"key_hash": key_hash})
+            
+            if not result:
                 logger.warning(f"Invalid API key attempted: {api_key[:10]}...")
                 return None
             
-            # Decode Redis response (handles both bytes and string responses)
-            key_data = self._decode_redis_dict(raw_key_data)
-            
-            # Check if key is expired
-            expires_at = key_data.get("expires_at")
-            if expires_at and datetime.fromisoformat(expires_at) < datetime.now(timezone.utc):
-                logger.warning(f"Expired API key used: {api_key[:10]}...")
-                await self.redis.delete(f"api_key:{key_hash}")
-                return None
-            
-            # Check if key is disabled
-            if key_data.get("status") != "active":
-                logger.warning(f"Inactive API key used: {api_key[:10]}...")
-                return None
-            
             # Update last used timestamp
-            await self.redis.hset(
-                f"api_key:{key_hash}",
-                "last_used_at",
-                datetime.now(timezone.utc).isoformat()
-            )
+            await db.execute("""
+                UPDATE api_keys 
+                SET last_used_at = NOW()
+                WHERE key_hash = :key_hash
+            """, {"key_hash": key_hash})
             
             # Return user metadata
             return {
-                "user_id": key_data.get("user_id"),
-                "key_id": key_data.get("key_id"),
-                "tier": key_data.get("tier", "basic"),
-                "permissions": key_data.get("permissions", "read").split(","),
-                "created_at": key_data.get("created_at"),
+                "user_id": result['user_id'],
+                "key_id": result['key_id'], 
+                "tier": result['tier'] or "basic",
+                "permissions": result['permissions'].split(",") if result['permissions'] else ["read"],
+                "created_at": result['created_at'].isoformat() if result['created_at'] else None,
                 "last_used_at": datetime.now(timezone.utc).isoformat()
             }
         except Exception as e:
@@ -147,7 +125,8 @@ class APIKeyManager:
         Returns:
             Tuple of (api_key, key_id)
         """
-        await self._ensure_redis_client()
+        db = await self._get_database()
+        
         # Generate API key
         import secrets
         key_id = secrets.token_hex(8)  # 16 character key ID
@@ -160,25 +139,25 @@ class APIKeyManager:
             days = expires_days or self.settings.security.api_key_expiry_days
             expires_at = datetime.now(timezone.utc) + timedelta(days=days)
         
-        # Store key metadata
+        # Store key metadata in PostgreSQL
         key_hash = self._hash_api_key(api_key)
-        key_data = {
-            "user_id": user_id,
+        
+        await db.execute("""
+            INSERT INTO api_keys (
+                key_id, user_id, key_hash, tier, permissions, 
+                status, created_at, expires_at
+            ) VALUES (
+                :key_id, :user_id, :key_hash, :tier, :permissions,
+                'active', NOW(), :expires_at
+            )
+        """, {
             "key_id": key_id,
+            "user_id": user_id,
+            "key_hash": key_hash,
             "tier": tier,
             "permissions": ",".join(permissions or ["read"]),
-            "status": "active",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "last_used_at": ""  # Use empty string instead of None
-        }
-        
-        if expires_at:
-            key_data["expires_at"] = expires_at.isoformat()
-        
-        await self.redis.hset(f"api_key:{key_hash}", mapping=key_data)
-        
-        # Track user's keys
-        await self.redis.sadd(f"user_keys:{user_id}", key_id)
+            "expires_at": expires_at
+        })
         
         logger.info(f"Created API key for user {user_id}, tier: {tier}, key_id: {key_id}")
         return api_key, key_id
@@ -193,25 +172,21 @@ class APIKeyManager:
         Returns:
             True if successfully revoked, False if key not found
         """
-        await self._ensure_redis_client()
+        db = await self._get_database()
         key_hash = self._hash_api_key(api_key)
-        key_data = await self.redis.hgetall(f"api_key:{key_hash}")
         
-        if not key_data:
-            return False
+        # Update key status to inactive
+        rows_updated = await db.execute("""
+            UPDATE api_keys 
+            SET status = 'inactive'
+            WHERE key_hash = :key_hash
+        """, {"key_hash": key_hash})
         
-        user_id = key_data.get("user_id")
-        key_id = key_data.get("key_id")
+        success = rows_updated > 0
+        if success:
+            logger.info(f"Revoked API key with hash: {key_hash[:16]}...")
         
-        # Remove key data
-        await self.redis.delete(f"api_key:{key_hash}")
-        
-        # Remove from user's key set
-        if user_id and key_id:
-            await self.redis.srem(f"user_keys:{user_id}", key_id)
-        
-        logger.info(f"Revoked API key: {key_id}")
-        return True
+        return success
     
     async def list_user_keys(self, user_id: str) -> list:
         """
@@ -223,27 +198,29 @@ class APIKeyManager:
         Returns:
             List of key metadata dictionaries
         """
-        await self._ensure_redis_client()
-        key_ids = await self.redis.smembers(f"user_keys:{user_id}")
-        keys_info = []
+        db = await self._get_database()
         
-        for key_id in key_ids:
-            # Find the key data by scanning for this key_id
-            # This is inefficient but needed for the current storage structure
-            async for key_name in self.redis.scan_iter(match="api_key:*"):
-                key_data = await self.redis.hgetall(key_name)
-                if key_data.get("key_id") == key_id:
-                    keys_info.append({
-                        "key_id": key_id,
-                        "user_id": user_id,  # Add the user_id field
-                        "tier": key_data.get("tier"),
-                        "permissions": key_data.get("permissions", "").split(","),
-                        "status": key_data.get("status"),
-                        "created_at": key_data.get("created_at"),
-                        "last_used_at": key_data.get("last_used_at"),
-                        "expires_at": key_data.get("expires_at")
-                    })
-                    break
+        # Get all API keys for the user from PostgreSQL
+        results = await db.fetch_all("""
+            SELECT key_id, user_id, tier, permissions, status,
+                   created_at, last_used_at, expires_at
+            FROM api_keys 
+            WHERE user_id = :user_id
+            ORDER BY created_at DESC
+        """, {"user_id": user_id})
+        
+        keys_info = []
+        for row in results:
+            keys_info.append({
+                "key_id": row['key_id'],
+                "user_id": row['user_id'],
+                "tier": row['tier'],
+                "permissions": row['permissions'].split(",") if row['permissions'] else [],
+                "status": row['status'],
+                "created_at": row['created_at'].isoformat() if row['created_at'] else None,
+                "last_used_at": row['last_used_at'].isoformat() if row['last_used_at'] else None,
+                "expires_at": row['expires_at'].isoformat() if row['expires_at'] else None
+            })
         
         return keys_info
     
