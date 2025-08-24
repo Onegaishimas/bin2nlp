@@ -219,6 +219,32 @@ temp_analysis/
 # Docker
 .dockerignore
 
+# Runtime data directories (Docker volumes)
+data/
+data/postgres/
+data/logs/
+data/nginx/
+data/storage/
+data/uploads/
+
+# Backup files
+*.backup
+*.bak
+*~
+*.orig
+
+# Development artifacts
+RESUME_COMMANDS.txt
+.housekeeping/dev-protocols/RESUME_COMMANDS.txt
+
+# Test artifacts that shouldn't be committed
+tests/uat/data/test_binaries/
+!tests/uat/data/test_binaries/.gitkeep
+
+# Generated OpenAPI files (keep only one source of truth)
+docs/openapi_current.json
+docs/openapi_comprehensive.json
+
 # Terraform
 *.tfstate
 *.tfstate.*
