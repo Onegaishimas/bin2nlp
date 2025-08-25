@@ -1,0 +1,81 @@
+
+# .dockerignore
+# Excludes files and directories from Docker build context
+# Only includes files/directories that actually exist in this codebase
+
+# Version Control
+.git/
+.gitignore
+
+# Development Environment Files
+.env
+.env-bin2nlp/
+
+# Python Cache and Build Artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Testing and Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+tests/  
+
+# Development Tools and IDE
+.vscode/
+.idea/
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+
+# Temporary and Cache Files
+*.tmp
+*.log
+logs/
+
+# Runtime Data (Docker Volumes)
+data/
+
+# Development Artifacts
+.housekeeping/
+
+# Type Checking
+.mypy_cache/
+
+# Docker Files (avoid recursion - but keep Dockerfile for build context)
+docker-compose.yml
+docker-compose.prod.yml
+docker-compose.override.yml
+.dockerignore
+
+# Kubernetes Deployment
+k8s-deployment.yaml
+
+# Deployment Scripts (not needed in container)
+scripts/deploy.sh
+scripts/docker-utils.sh
+scripts/test-deployment.sh
+scripts/housekeeping.py
+
+# Claude Code Configuration
+.claude/
+
+# Project Documentation (not needed at runtime)
+README.md
+CLAUDE.md
+docs/
+
+# Project Development Documents
+0xcc/
+
+# Configuration Files
+pytest.ini
+pyproject.toml
