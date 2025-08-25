@@ -79,19 +79,124 @@ uvicorn src.api.main:app --host 0.0.0.0 --port 8000
 
 5. **Verify installation**
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8000/api/v1/health
 ```
 
 ## 📖 API Usage
 
-### Basic Decompilation + Translation
+### Health Check
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/decompile" \
-  -H "Content-Type: multipart/form-data" \
+# Check system health and service status
+curl -X GET http://localhost:8000/api/v1/health
+
+# Check system readiness (Kubernetes-style)
+curl -X GET http://localhost:8000/api/v1/health/ready
+
+# Get system information and capabilities
+curl -X GET http://localhost:8000/api/v1/system/info
+```
+
+### Basic Decompilation (No LLM Translation)
+
+```bash
+# Submit binary for basic decompilation
+curl -X POST http://localhost:8000/api/v1/decompile \
+  -F "file=@sample.exe"
+
+# Response includes job_id for status checking
+{
+  "success": true,
+  "job_id": "7832144e-e194-4f0e-8b42-030a0fc56578",
+  "status": "queued",
+  "file_info": {
+    "filename": "sample.exe",
+    "size_bytes": 1024,
+    "content_type": "application/octet-stream"
+  },
+  "estimated_completion": "5-10 minutes",
+  "check_status_url": "/api/v1/decompile/7832144e-e194-4f0e-8b42-030a0fc56578"
+}
+```
+
+### LLM-Enhanced Decompilation
+
+#### Using Ollama (Local)
+
+```bash
+# With local Ollama server (default port 11434)
+curl -X POST http://localhost:8000/api/v1/decompile \
   -F "file=@sample.exe" \
   -F "llm_provider=openai" \
-  -F "translation_detail=standard"
+  -F "llm_api_key=ollama-local-key" \
+  -F "llm_endpoint_url=http://localhost:11434/v1" \
+  -F "llm_model=phi4:latest"
+
+# With remote Ollama server (example: ollama.example.com)
+curl -X POST http://localhost:8000/api/v1/decompile \
+  -F "file=@sample.exe" \
+  -F "llm_provider=openai" \
+  -F "llm_api_key=ollama-local-key" \
+  -F "llm_endpoint_url=http://ollama.example.com:80/v1" \
+  -F "llm_model=phi4:latest"
+```
+
+#### Using OpenAI
+
+```bash
+curl -X POST http://localhost:8000/api/v1/decompile \
+  -F "file=@sample.exe" \
+  -F "llm_provider=openai" \
+  -F "llm_api_key=sk-your-openai-key" \
+  -F "llm_endpoint_url=https://api.openai.com/v1" \
+  -F "llm_model=gpt-4"
+```
+
+### Check Job Status
+
+```bash
+# Check processing status
+curl -X GET http://localhost:8000/api/v1/decompile/7832144e-e194-4f0e-8b42-030a0fc56578
+
+# Example completed response
+{
+  "job_id": "7832144e-e194-4f0e-8b42-030a0fc56578",
+  "status": "completed",
+  "progress_percentage": 100,
+  "results": {
+    "success": true,
+    "function_count": 10,
+    "import_count": 23,
+    "string_count": 45,
+    "duration_seconds": 12.5,
+    "llm_translations": {
+      "functions": [
+        {
+          "function_name": "main",
+          "description": "This is the main entry point that initializes...",
+          "confidence": 0.85
+        }
+      ],
+      "provider": "openai",
+      "translation_time": "2025-08-25T01:34:14.078919"
+    }
+  }
+}
+```
+
+### Configuration Options
+
+```bash
+# Detailed analysis depth
+curl -X POST http://localhost:8000/api/v1/decompile \
+  -F "file=@sample.exe" \
+  -F "analysis_depth=detailed" \
+  -F "translation_detail=comprehensive"
+
+# Basic analysis (faster processing)
+curl -X POST http://localhost:8000/api/v1/decompile \
+  -F "file=@sample.exe" \
+  -F "analysis_depth=basic"
 ```
 
 ### Response Structure
@@ -159,15 +264,19 @@ curl -X POST "http://localhost:8000/api/v1/decompile" \
 }
 ```
 
-### Configuration Options
+### API Parameters
 
-| Parameter | Description | Options |
-|-----------|-------------|---------|
-| `llm_provider` | LLM provider for translation | `openai`, `anthropic`, `gemini`, `ollama` |
-| `llm_model` | Specific model (optional) | `gpt-4`, `claude-3-sonnet-20240229`, `gemini-pro` |
-| `translation_detail` | Level of explanation detail | `brief`, `standard`, `comprehensive` |
-| `decompilation_depth` | Analysis thoroughness | `basic`, `standard`, `comprehensive` |
-| `timeout_seconds` | Processing timeout | `60-1800` (1-30 minutes) |
+| Parameter | Description | Required | Options |
+|-----------|-------------|----------|---------|
+| `file` | Binary file to analyze | Yes | Any binary format (PE, ELF, Mach-O) |
+| `llm_provider` | LLM provider for translation | No | `openai`, `anthropic`, `gemini` |
+| `llm_api_key` | API key for LLM provider | No* | Provider-specific API key |
+| `llm_endpoint_url` | LLM provider endpoint | No* | Provider-specific URL |
+| `llm_model` | Specific model name | No* | Provider-specific model |
+| `analysis_depth` | Analysis thoroughness | No | `basic`, `standard`, `detailed` |
+| `translation_detail` | Translation detail level | No | `brief`, `standard`, `comprehensive` |
+
+*Required when using LLM translation (`llm_provider` is specified)
 
 ## 🔧 Configuration
 
@@ -368,13 +477,16 @@ services:
 
 ```bash
 # System health
-curl http://localhost:8000/health
+curl http://localhost:8000/api/v1/health
 
-# LLM provider status
-curl http://localhost:8000/api/v1/llm-providers/health
+# Readiness check (Kubernetes-style)
+curl http://localhost:8000/api/v1/health/ready
 
-# Cache status
-curl http://localhost:8000/api/v1/cache/stats
+# Liveness check
+curl http://localhost:8000/api/v1/health/live
+
+# System information and capabilities
+curl http://localhost:8000/api/v1/system/info
 ```
 
 ### Logging Configuration
