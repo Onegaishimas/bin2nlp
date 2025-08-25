@@ -187,14 +187,13 @@ class TranslationServiceOrchestrator:
                 
                 # TODO: Translate imports and strings when we have more data
                 
-                # Create enhanced result
-                enhanced_result = decompilation_result.model_copy()
+                # Return both the original result and the translation data separately
+                logger.info(f"Completed LLM translation: {len(translated_functions)} functions translated")
+                increment_counter("llm_translation_success", 1)
                 
-                # Add translation metadata
+                # Store translation data for return
                 if translated_functions:
-                    # For now, store in a simple format - we'll enhance this later
-                    enhanced_result.metadata = enhanced_result.metadata or {}
-                    enhanced_result.metadata["llm_translations"] = {
+                    translation_data = {
                         "functions": [
                             {
                                 "function_name": t.function_name,
@@ -206,10 +205,12 @@ class TranslationServiceOrchestrator:
                         "provider": provider_id,
                         "translation_time": datetime.utcnow().isoformat()
                     }
-                
-                logger.info(f"Completed LLM translation: {len(translated_functions)} functions translated")
-                increment_counter("llm_translation_success", 1)
-                return enhanced_result
+                    logger.info(f"Created translation data with {len(translation_data['functions'])} functions")
+                    # Return a tuple: (decompilation_result, translation_data)
+                    return decompilation_result, translation_data
+                else:
+                    logger.warning("No translated functions to return")
+                    return decompilation_result, None
                 
             except Exception as e:
                 logger.error(f"Translation failed: {e}")

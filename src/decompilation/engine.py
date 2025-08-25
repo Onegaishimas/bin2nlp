@@ -408,8 +408,8 @@ class DecompilationEngine:
             for func in func_data:
                 try:
                     # Get basic function info
-                    name = func.get('name', f"fcn_{func.get('offset', 0):08x}")
-                    address = f"0x{func.get('offset', 0):08x}"
+                    name = func.get('name', f"fcn_{func.get('addr', 0):08x}")
+                    address = f"0x{func.get('addr', 0):08x}"
                     size = func.get('size', 0)
                     
                     # Get assembly code if requested

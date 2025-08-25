@@ -12,7 +12,8 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from pathlib import Path
 
-from fastapi import APIRouter, File, UploadFile, Form, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Depends
+import asyncio
 from fastapi.responses import JSONResponse
 
 from ...core.config import get_settings
@@ -46,44 +47,46 @@ async def process_decompilation_job(job_id: str, file_path: str, analysis_config
     """Background task to process decompilation job."""
     job_queue = JobQueue()
     
-    # Create decompilation config from analysis parameters
-    from ...decompilation.engine import DecompilationConfig
-    
-    # Map analysis depth to radare2 commands
-    analysis_depth = analysis_config.get("analysis_depth", "standard")
-    r2_analysis_mapping = {
-        "basic": "aa",
-        "standard": "aaa", 
-        "comprehensive": "aaaa"
-    }
-    
-    decompilation_config = DecompilationConfig(
-        r2_analysis_level=r2_analysis_mapping.get(analysis_depth, "aaa"),
-        extract_functions=True,
-        extract_strings=True,
-        extract_imports=True
-    )
-    
-    engine = DecompilationEngine(config=decompilation_config)
-    
     try:
+        logger.info(f"Background task started for job {job_id}")
+        
+        # Create decompilation config from analysis parameters
+        from ...decompilation.engine import DecompilationConfig
+        
+        # Map analysis depth to radare2 commands
+        analysis_depth = analysis_config.get("analysis_depth", "standard")
+        r2_analysis_mapping = {
+            "basic": "aa",
+            "standard": "aaa", 
+            "comprehensive": "aaaa"
+        }
+        
+        decompilation_config = DecompilationConfig(
+            r2_analysis_level=r2_analysis_mapping.get(analysis_depth, "aaa"),
+            extract_functions=True,
+            extract_strings=True,
+            extract_imports=True
+        )
+        
+        engine = DecompilationEngine(config=decompilation_config)
         logger.info(f"Starting decompilation job {job_id}")
         
-        # Update progress to processing
-        await job_queue.update_job_progress(
+        # Update status to processing
+        await job_queue.update_job_status(
             job_id=job_id,
+            worker_id="background-worker",
             status=JobStatus.PROCESSING,
             progress_percentage=10.0,
-            current_stage="Starting decompilation",
-            worker_id="background-worker"
+            current_stage="Starting decompilation"
         )
         
         # Perform decompilation
         result = await engine.decompile_binary(file_path)
         
-        # Update progress
+        # Update progress  
         await job_queue.update_job_progress(
             job_id=job_id,
+            worker_id="background-worker",
             progress_percentage=70.0,
             current_stage="Decompilation complete, starting LLM translation"
         )
@@ -107,15 +110,25 @@ async def process_decompilation_job(job_id: str, file_path: str, analysis_config
                 }
                 
                 # Translate the decompilation result
-                result = await translation_service.translate_decompilation_result(
+                translation_result = await translation_service.translate_decompilation_result(
                     decompilation_result=result,
                     llm_config=llm_config,
                     context={"job_id": job_id}
                 )
                 
+                # Handle tuple return (result, translation_data) or just result
+                if isinstance(translation_result, tuple):
+                    result, llm_translations = translation_result
+                    logger.info(f"Received LLM translations: {llm_translations is not None}")
+                else:
+                    result = translation_result
+                    llm_translations = None
+                    logger.warning("Translation service returned single result (no translations)")
+                
                 # Update progress after LLM translation
                 await job_queue.update_job_progress(
                     job_id=job_id,
+                    worker_id="background-worker",
                     progress_percentage=90.0,
                     current_stage="LLM translation complete"
                 )
@@ -126,6 +139,7 @@ async def process_decompilation_job(job_id: str, file_path: str, analysis_config
                 # Continue with original result - translation failure is not critical
                 await job_queue.update_job_progress(
                     job_id=job_id,
+                    worker_id="background-worker",
                     progress_percentage=90.0,
                     current_stage="LLM translation failed, proceeding with decompilation results"
                 )
@@ -144,27 +158,24 @@ async def process_decompilation_job(job_id: str, file_path: str, analysis_config
             "decompilation_id": result.decompilation_id
         }
         
-        # Include LLM translation metadata if available
-        if result.metadata and "llm_translations" in result.metadata:
-            result_summary["llm_translations"] = result.metadata["llm_translations"]
+        # Include LLM translation data if available
+        if 'llm_translations' in locals() and llm_translations is not None:
+            logger.info(f"Including LLM translations: {len(llm_translations.get('functions', []))} functions")
+            result_summary["llm_translations"] = llm_translations
+        else:
+            logger.info("No LLM translations to include in result")
         
-        # Complete the job
-        await job_queue.complete_job(job_id, "background-worker")
-        
-        # Store results in cache for retrieval
-        from ...cache.result_cache import ResultCache
-        result_cache = ResultCache()
-        await result_cache.set(
-            f"result:{job_id}",
-            result_summary,  # ResultCache handles JSON serialization
-            ttl_seconds=3600  # 1 hour TTL
-        )
+        # Complete the job and store results
+        await job_queue.complete_job(job_id, "background-worker", result_summary)
         
         logger.info(f"Completed decompilation job {job_id}")
         
     except Exception as e:
-        logger.error(f"Decompilation job {job_id} failed: {e}")
-        await job_queue.fail_job(job_id, "background-worker", str(e))
+        logger.error(f"Decompilation job {job_id} failed: {e}", exc_info=True)
+        try:
+            await job_queue.fail_job(job_id, "background-worker", str(e))
+        except Exception as fail_error:
+            logger.error(f"Failed to mark job {job_id} as failed: {fail_error}")
     finally:
         # Clean up temporary file
         try:
@@ -184,7 +195,6 @@ async def submit_decompilation_job(
     llm_endpoint_url: Optional[str] = Form(default=None),
     llm_api_key: Optional[str] = Form(default=None),
     translation_detail: str = Form(default="standard"),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     job_queue: JobQueue = Depends(get_job_queue)
 ):
     """
@@ -241,13 +251,8 @@ async def submit_decompilation_job(
         priority="normal"
     )
     
-    # Start background processing
-    background_tasks.add_task(
-        process_decompilation_job,
-        job_id,
-        temp_file_path,
-        analysis_config
-    )
+    # Start background processing with asyncio.create_task
+    asyncio.create_task(process_decompilation_job(job_id, temp_file_path, analysis_config))
     
     return JSONResponse(
         status_code=202,  # Accepted for async processing
@@ -314,17 +319,16 @@ async def get_decompilation_result(
     if progress.error_message:
         response["error_message"] = progress.error_message
     
-    # If job is completed, try to get results
+    # If job is completed, try to get results from database/storage
     if "completed" in status_str:
         try:
-            from ...cache.result_cache import ResultCache
-            result_cache = ResultCache()
-            result_data = await result_cache.get(f"result:{job_id}")
+            from ...database.operations import JobQueue as DatabaseJobQueue
+            db_queue = DatabaseJobQueue()
+            result_data = await db_queue.get_job_result(job_id)
         except Exception as e:
-            logger.error(f"Failed to retrieve result data from cache for job {job_id}: {e}")
+            logger.error(f"Failed to retrieve result data for job {job_id}: {e}")
             response["message"] = "Decompilation completed but results retrieval failed"
         else:
-            # ResultCache already handles JSON parsing and returns the actual object
             if result_data:
                 response["results"] = result_data
                 response["message"] = "Decompilation completed successfully"

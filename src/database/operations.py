@@ -376,23 +376,68 @@ class JobQueue:
                     current_stage = :current_stage,
                     estimated_completion_seconds = :estimated_completion_seconds,
                     updated_at = NOW()
-                WHERE id = :job_id AND worker_id = :worker_id
+                WHERE id = :job_id
             """
             
             rows_updated = await db.execute(query, {
                 'job_id': job_id,
-                'worker_id': worker_id,
                 'progress_percentage': progress_percentage,
                 'current_stage': current_stage,
                 'estimated_completion_seconds': estimated_completion_seconds
             })
             
-            return rows_updated > 0
+            return (rows_updated or 0) > 0
             
         except Exception as e:
             self.logger.error(
                 "Failed to update job progress",
                 extra={"error": str(e), "job_id": job_id}
+            )
+            return False
+    
+    async def update_job_status(
+        self,
+        job_id: str,
+        worker_id: str,
+        status: str,
+        progress_percentage: Optional[float] = None,
+        current_stage: Optional[str] = None,
+        estimated_completion_seconds: Optional[int] = None
+    ) -> bool:
+        """Update job status and optionally progress."""
+        try:
+            db = await get_database()
+            
+            # Build dynamic query based on provided parameters
+            update_fields = ["status = :status", "worker_id = :worker_id", "updated_at = NOW()"]
+            params = {"job_id": job_id, "worker_id": worker_id, "status": status}
+            
+            if progress_percentage is not None:
+                update_fields.append("progress_percentage = :progress_percentage")
+                params["progress_percentage"] = progress_percentage
+            
+            if current_stage is not None:
+                update_fields.append("current_stage = :current_stage")
+                params["current_stage"] = current_stage
+                
+            if estimated_completion_seconds is not None:
+                update_fields.append("estimated_completion_seconds = :estimated_completion_seconds")
+                params["estimated_completion_seconds"] = estimated_completion_seconds
+            
+            query = f"""
+                UPDATE jobs 
+                SET {', '.join(update_fields)}
+                WHERE id = :job_id
+            """
+            
+            rows_updated = await db.execute(query, params)
+            
+            return (rows_updated or 0) > 0
+            
+        except Exception as e:
+            self.logger.error(
+                "Failed to update job status",
+                extra={"error": str(e), "job_id": job_id, "status": status}
             )
             return False
     

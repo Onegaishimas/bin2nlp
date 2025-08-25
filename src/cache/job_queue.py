@@ -277,6 +277,41 @@ class JobQueue:
             estimated_completion_seconds=estimated_completion_seconds
         )
     
+    async def update_job_status(
+        self,
+        job_id: str,
+        worker_id: str,
+        status: JobStatus,
+        progress_percentage: Optional[float] = None,
+        current_stage: Optional[str] = None,
+        estimated_completion_seconds: Optional[int] = None
+    ) -> bool:
+        """
+        Update job status and optionally progress.
+        
+        Args:
+            job_id: Job ID
+            worker_id: Worker ID
+            status: New job status
+            progress_percentage: Progress percentage (0-100)
+            current_stage: Current processing stage
+            estimated_completion_seconds: Estimated time to completion
+            
+        Returns:
+            True if successful
+        """
+        # Convert enum to string value
+        status_str = status.value if isinstance(status, JobStatus) else status
+        
+        return await self.db_queue.update_job_status(
+            job_id=job_id,
+            worker_id=worker_id,
+            status=status_str,
+            progress_percentage=progress_percentage,
+            current_stage=current_stage,
+            estimated_completion_seconds=estimated_completion_seconds
+        )
+    
     async def get_job_progress(self, job_id: str) -> Optional[JobProgress]:
         """
         Get job progress information.
