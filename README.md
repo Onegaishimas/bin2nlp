@@ -54,7 +54,7 @@
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/your-org/bin2nlp.git
+git clone https://github.com/Onegaishimas/bin2nlp.git
 cd bin2nlp
 ```
 
@@ -566,8 +566,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Architecture Decisions**: [/adrs/](./adrs/)
 
 ### Issues
-- **Bug Reports**: [GitHub Issues](https://github.com/your-org/bin2nlp/issues)
-- **Feature Requests**: [GitHub Discussions](https://github.com/your-org/bin2nlp/discussions)
+- **Bug Reports**: [GitHub Issues](https://github.com/Onegaishimas/bin2nlp/issues)
+- **Feature Requests**: [GitHub Discussions](https://github.com/Onegaishimas/bin2nlp/discussions)
 
 ### Community
 - **Discord**: [Join our community](https://discord.gg/your-invite)
