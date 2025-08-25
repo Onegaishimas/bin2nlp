@@ -1,32 +1,18 @@
-
 # .dockerignore
-# Excludes files and directories from Docker build context
-# Only includes files/directories that actually exist in this codebase
+# Only exclude files that cause build issues or aren't needed in container
 
 # Version Control
 .git/
 .gitignore
 
-# Development Environment Files
-.env
-.env-bin2nlp/
+# Data directories (causes permission errors)
+data/
 
 # Python Cache and Build Artifacts
 __pycache__/
 *.py[cod]
 *$py.class
-build/
-dist/
-*.egg-info/
-*.egg
-
-# Testing and Coverage
 .pytest_cache/
-.coverage
-.coverage.*
-htmlcov/
-coverage.xml
-tests/  
 
 # Development Tools and IDE
 .vscode/
@@ -36,46 +22,21 @@ tests/
 .DS_Store
 Thumbs.db
 
-# Temporary and Cache Files
+# Temporary Files
 *.tmp
 *.log
-logs/
 
-# Runtime Data (Docker Volumes)
-data/
-
-# Development Artifacts
-.housekeeping/
-
-# Type Checking
-.mypy_cache/
-
-# Docker Files (avoid recursion - but keep Dockerfile for build context)
+# Docker Compose files (avoid recursion)
 docker-compose.yml
 docker-compose.prod.yml
 docker-compose.override.yml
-.dockerignore
 
-# Kubernetes Deployment
-k8s-deployment.yaml
-
-# Deployment Scripts (not needed in container)
-scripts/deploy.sh
-scripts/docker-utils.sh
-scripts/test-deployment.sh
-scripts/housekeeping.py
-
-# Claude Code Configuration
-.claude/
-
-# Project Documentation (not needed at runtime)
+# Development Documentation (not needed at runtime)
+0xcc/
+docs/
 README.md
 CLAUDE.md
-docs/
+.housekeeping/
 
-# Project Development Documents
-0xcc/
-
-# Configuration Files
-pytest.ini
-pyproject.toml
+# Development Scripts
+scripts/
