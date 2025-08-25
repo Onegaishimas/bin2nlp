@@ -16,7 +16,7 @@ from ...core.logging import get_logger
 from ...core.exceptions import BinaryAnalysisException
 from ...cache.base import get_file_storage_client
 from ...database.connection import get_database
-from ...llm.providers.factory import LLMProviderFactory
+# LLM provider factory removed - using on-demand translation service
 
 
 logger = get_logger(__name__)
@@ -104,39 +104,29 @@ async def health_check():
         }
         overall_status = "degraded"
     
-    # Check LLM providers
+    # Check LLM providers (on-demand system)
     try:
-        factory = LLMProviderFactory()
-        healthy_providers = factory.get_healthy_providers()
-        provider_stats = factory.get_provider_stats()
+        from ...llm.translation_service import get_translation_service
+        translation_service = await get_translation_service()
+        health_info = await translation_service.health_check()
         
         services_status["llm_providers"] = {
-            "status": "healthy" if healthy_providers else "degraded",
-            "healthy_count": len(healthy_providers),
-            "total_configured": len(factory.provider_configs),
-            "providers": {
-                provider_id: {
-                    "status": "healthy" if provider_id in healthy_providers else "unhealthy",
-                    "requests": stats.total_requests,
-                    "success_rate": round(stats.success_rate, 2)
-                }
-                for provider_id, stats in provider_stats.items()
-            }
+            "status": health_info.get("status", "healthy"),
+            "message": health_info.get("message", "Translation service ready"),
+            "supported_providers": health_info.get("supported_providers", []),
+            "mode": "on-demand",
+            "note": "Providers created dynamically from API requests"
         }
-        
-        # Don't mark overall status as unhealthy if no providers are configured
-        # This allows the system to function without LLM providers for basic operations
-        if not healthy_providers and len(factory.provider_configs) > 0:
-            overall_status = "degraded"
             
     except Exception as e:
-        logger.warning(f"LLM providers health check failed (non-critical): {e}")
+        logger.warning(f"LLM translation service health check failed (non-critical): {e}")
         services_status["llm_providers"] = {
             "status": "unavailable",
             "error": str(e),
-            "note": "LLM providers not configured or unavailable"
+            "mode": "on-demand",
+            "note": "Translation service unavailable"
         }
-        # Don't mark overall status as degraded for LLM provider issues in basic health check
+        # Don't mark overall status as degraded for LLM service issues in basic health check
     
     return HealthResponse(
         status=overall_status,

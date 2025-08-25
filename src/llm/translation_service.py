@@ -34,79 +34,74 @@ class TranslationServiceOrchestrator:
     
     def __init__(self):
         self.prompt_manager = ContextualPromptManager()
-        self._providers: Dict[str, Any] = {}
-        self._initialized = False
+        # No persistent providers - create on demand from request parameters
     
-    async def initialize(self, llm_config: Optional[Dict[str, Any]] = None):
-        """Initialize available LLM providers based on configuration."""
-        if self._initialized:
-            return
+    def _create_provider_from_config(self, llm_config: Dict[str, Any]):
+        """Create a provider instance from request configuration."""
+        provider_id = llm_config.get("llm_provider", "openai")
         
-        logger.info("Initializing LLM Translation Service")
+        # Get required parameters from request
+        api_key = llm_config.get("llm_api_key")
+        endpoint_url = llm_config.get("llm_endpoint_url")
+        model_name = llm_config.get("llm_model")
         
-        # Import settings to get environment variables
-        from ..core.config import get_settings
-        import os
-        
-        # Initialize providers based on available configurations
-        # Check if OpenAI/Ollama configuration is available
-        provider_requested = llm_config and llm_config.get("llm_provider") == "openai"
-        
-        # Try to get settings, but fall back to environment variables if settings fail
-        llm_openai_key = None
-        llm_openai_url = None
-        llm_openai_model = None
-        
-        try:
-            settings = get_settings()
-            llm_openai_key = settings.llm.openai_api_key.get_secret_value() if settings.llm.openai_api_key else None
-            llm_openai_url = settings.llm.openai_base_url
-            llm_openai_model = settings.llm.openai_default_model
-            logger.info("Successfully loaded LLM settings from configuration system")
-        except Exception as e:
-            logger.warning(f"Failed to load LLM settings, falling back to environment variables: {e}")
-            llm_openai_key = os.getenv("LLM_OPENAI_API_KEY")
-            llm_openai_url = os.getenv("LLM_OPENAI_BASE_URL") 
-            llm_openai_model = os.getenv("LLM_OPENAI_DEFAULT_MODEL")
-            logger.info("Using direct environment variable access as fallback")
-        
-        env_has_openai_config = bool(llm_openai_key) and bool(llm_openai_url)
-        
-        if provider_requested or env_has_openai_config:
+        # Fall back to environment defaults if not provided in request
+        if not api_key or not endpoint_url or not model_name:
+            from ..core.config import get_settings
+            import os
+            
             try:
-                # Use environment variables as defaults, with llm_config overrides
-                api_key = (llm_config.get("llm_api_key") if llm_config else None) or llm_openai_key
-                endpoint_url = (llm_config.get("llm_endpoint_url") if llm_config else None) or llm_openai_url
-                model_name = (llm_config.get("llm_model") if llm_config else None) or llm_openai_model
-                
-                logger.info(f"Initializing OpenAI provider with endpoint: {endpoint_url}")
-                logger.info(f"Using model: {model_name}")
-                logger.info(f"API key configured: {'Yes' if api_key else 'No'}")
-                
-                config = LLMConfig(
-                    provider_id=LLMProviderType.OPENAI,
-                    api_key=api_key,
-                    default_model=model_name,
-                    endpoint_url=endpoint_url,
-                    max_tokens=4000,
-                    temperature=0.1,
-                    timeout_seconds=30
-                )
-                
-                provider = OpenAIProvider(config)
-                await provider.initialize()
-                self._providers["openai"] = provider
-                logger.info("Initialized OpenAI provider (Ollama) successfully")
-                
-            except Exception as e:
-                logger.error(f"Failed to initialize OpenAI provider: {e}")
+                settings = get_settings()
+                api_key = api_key or (settings.llm.openai_api_key.get_secret_value() if settings.llm.openai_api_key else None)
+                endpoint_url = endpoint_url or settings.llm.openai_base_url
+                model_name = model_name or settings.llm.openai_default_model
+            except Exception:
+                # Fallback to environment variables
+                api_key = api_key or os.getenv("LLM_OPENAI_API_KEY")
+                endpoint_url = endpoint_url or os.getenv("LLM_OPENAI_BASE_URL")
+                model_name = model_name or os.getenv("LLM_OPENAI_DEFAULT_MODEL")
+        
+        if not all([api_key, endpoint_url, model_name]):
+            raise ValueError(f"Missing required LLM configuration: api_key={bool(api_key)}, endpoint_url={bool(endpoint_url)}, model={bool(model_name)}")
+        
+        logger.info(f"Creating {provider_id} provider with endpoint: {endpoint_url}, model: {model_name}")
+        
+        # Create provider configuration
+        if provider_id == "openai":
+            config = LLMConfig(
+                provider_id=LLMProviderType.OPENAI,
+                api_key=api_key,
+                default_model=model_name,
+                endpoint_url=endpoint_url,
+                max_tokens=4000,
+                temperature=0.1,
+                timeout_seconds=30
+            )
+            return OpenAIProvider(config)
+        elif provider_id == "anthropic":
+            config = LLMConfig(
+                provider_id=LLMProviderType.ANTHROPIC,
+                api_key=api_key,
+                default_model=model_name,
+                endpoint_url=endpoint_url,
+                max_tokens=4000,
+                temperature=0.1,
+                timeout_seconds=30
+            )
+            return AnthropicProvider(config)
+        elif provider_id == "gemini":
+            config = LLMConfig(
+                provider_id=LLMProviderType.GEMINI,
+                api_key=api_key,
+                default_model=model_name,
+                endpoint_url=endpoint_url,
+                max_tokens=4000,
+                temperature=0.1,
+                timeout_seconds=30
+            )
+            return GeminiProvider(config)
         else:
-            logger.warning("No OpenAI/Ollama configuration found - neither via llm_config nor environment variables")
-        
-        # TODO: Add other providers (Anthropic, Gemini) when configured
-        
-        self._initialized = True
-        logger.info(f"Translation service initialized with {len(self._providers)} providers")
+            raise ValueError(f"Unsupported LLM provider: {provider_id}")
     
     async def translate_decompilation_result(
         self,
@@ -125,11 +120,9 @@ class TranslationServiceOrchestrator:
         Returns:
             Enhanced decompilation result with LLM translations
         """
-        if not self._initialized:
-            await self.initialize(llm_config)
-        
-        if not self._providers:
-            logger.warning("No LLM providers available for translation")
+        # Create provider on-demand from request configuration
+        if not llm_config or not llm_config.get("llm_provider"):
+            logger.warning("No LLM provider specified in request")
             return decompilation_result
         
         logger.info(f"Starting LLM translation for decompilation {decompilation_result.decompilation_id}")
@@ -139,18 +132,15 @@ class TranslationServiceOrchestrator:
             OperationType.LLM_REQUEST,
             "complete_translation",
             decompilation_id=decompilation_result.decompilation_id,
-            provider_count=len(self._providers)
+            provider_count=1  # Single on-demand provider per request
         ):
             increment_counter("llm_translation_requests", 1)
             
             try:
-                # Select provider based on configuration
-                provider_id = llm_config.get("llm_provider", "openai")
-                provider = self._providers.get(provider_id)
-                
-                if not provider:
-                    logger.error(f"Requested provider '{provider_id}' not available")
-                    return decompilation_result
+                # Create provider from request configuration
+                provider = self._create_provider_from_config(llm_config)
+                await provider.initialize()
+                provider_id = llm_config.get("llm_provider")
                 
                 # Prepare translation context
                 translation_context = self._prepare_translation_context(
@@ -248,35 +238,15 @@ class TranslationServiceOrchestrator:
         return translation_context
     
     async def get_available_providers(self) -> List[str]:
-        """Get list of available LLM providers."""
-        return list(self._providers.keys())
+        """Get list of supported LLM providers."""
+        return ["openai", "anthropic", "gemini"]
     
     async def health_check(self) -> Dict[str, Any]:
-        """Check health of all initialized providers."""
-        if not self._initialized:
-            return {"status": "not_initialized", "providers": {}}
-        
-        provider_health = {}
-        for provider_id, provider in self._providers.items():
-            try:
-                health = await provider.health_check()
-                provider_health[provider_id] = {
-                    "healthy": health.is_healthy,
-                    "response_time_ms": health.api_latency_ms
-                }
-            except Exception as e:
-                provider_health[provider_id] = {
-                    "healthy": False,
-                    "error": str(e)
-                }
-        
-        healthy_count = sum(1 for h in provider_health.values() if h.get("healthy", False))
-        
+        """Check health of translation service (providers created on-demand)."""
         return {
-            "status": "healthy" if healthy_count > 0 else "degraded",
-            "total_providers": len(self._providers),
-            "healthy_providers": healthy_count,
-            "providers": provider_health
+            "status": "healthy",
+            "message": "Translation service ready - providers created on-demand from requests",
+            "supported_providers": ["openai", "anthropic", "gemini"]
         }
 
 
