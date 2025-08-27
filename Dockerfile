@@ -3,7 +3,7 @@
 # Uses package manager for radare2 installation (maximum reliability)
 
 # Stage 1: Build environment for Python dependencies
-FROM python:3.11-slim as builder
+FROM python:alpine as builder
 
 # Build environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -28,7 +28,7 @@ RUN pip install --upgrade pip setuptools wheel \
     && pip install -r /tmp/requirements.txt
 
 # Stage 2: Production runtime image with package manager radare2
-FROM python:3.11-slim as production
+FROM python:alpine as production
 
 # Production environment variables
 ENV PYTHONUNBUFFERED=1 \
