@@ -3,7 +3,7 @@
 # Uses package manager for radare2 installation (maximum reliability)
 
 # Stage 1: Build environment for Python dependencies
-FROM python:alpine as builder
+FROM python:3.11-slim as builder
 
 # Build environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -12,10 +12,12 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Install Python build dependencies only
-RUN apk add --no-cache \
-    build-base \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     libffi-dev \
-    openssl-dev
+    libssl-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create virtual environment and install Python dependencies
 RUN python -m venv /opt/venv
@@ -27,7 +29,7 @@ RUN pip install --upgrade pip setuptools wheel \
     && pip install -r /tmp/requirements.txt
 
 # Stage 2: Production runtime image with package manager radare2
-FROM python:alpine as production
+FROM python:3.11-slim as production
 
 # Production environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -35,16 +37,18 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH"
 
 # Install runtime dependencies and build tools for radare2
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     file \
     binutils \
     git \
-    build-base \
-    pkgconf \
+    build-essential \
+    pkg-config \
     cmake \
-    make
+    make \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install radare2 from source (RELIABLE, tested approach)
 # Use the latest stable release and install to /usr/local
