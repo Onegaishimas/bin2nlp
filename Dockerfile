@@ -12,11 +12,10 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Install Python build dependencies only
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
+RUN apk add --no-cache \
+    build-base \
     libffi-dev \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
+    openssl-dev
 
 # Create virtual environment and install Python dependencies
 RUN python -m venv /opt/venv
@@ -36,16 +35,16 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH"
 
 # Install runtime dependencies and build tools for radare2
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apk add --no-cache \
     curl \
     ca-certificates \
     file \
     binutils \
     git \
-    build-essential \
-    pkg-config \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    build-base \
+    pkgconf \
+    cmake \
+    make
 
 # Install radare2 from source (RELIABLE, tested approach)
 # Use the latest stable release and install to /usr/local
