@@ -136,18 +136,27 @@ def create_app() -> FastAPI:
         description="""
         ## Binary Decompilation & Multi-LLM Translation Service
 
+        **🚀 Open Access Binary Analysis Platform**
+
         Transform binary executables into human-readable analysis through advanced decompilation 
-        and multi-provider LLM translation.
+        and multi-provider LLM translation. No authentication or API keys required!
 
         ### Key Features
-        - **Multi-format support**: PE, ELF, Mach-O binary analysis
-        - **Multi-LLM providers**: OpenAI, Anthropic, Google Gemini integration
-        - **Scalable architecture**: PostgreSQL database, file storage, async processing
-        - **Production ready**: Open access, monitoring, observability
+        - **🔓 Open Access**: No authentication, API keys, or access control
+        - **📁 Multi-format support**: PE, ELF, Mach-O binary analysis
+        - **🤖 Multi-LLM providers**: OpenAI, Anthropic, Google Gemini integration
+        - **⚡ High Performance**: PostgreSQL database, async processing, real-time monitoring
+        - **🛠️ Developer Friendly**: RESTful API, comprehensive documentation, error handling
 
-        ### Open Access
-        All endpoints are freely accessible without authentication requirements.
-        This service is designed for open binary analysis and research.
+        ### Getting Started
+        1. Upload a binary file to `/api/v1/decompile`
+        2. Choose your preferred LLM provider (openai, anthropic, gemini)
+        3. Monitor job progress and retrieve results
+        4. Access monitoring and metrics via admin endpoints
+
+        ### Open Source & Research
+        This service is designed for open binary analysis, security research, and educational purposes.
+        All endpoints are freely accessible without restrictions.
 
         ### Support
         - Documentation: [GitHub Repository](https://github.com/example/bin2nlp)

@@ -27,8 +27,7 @@ This task list **originally** implemented the Phase 1 Integrated System as defin
 - `src/models/analysis/results.py` - Analysis result structures and response models (implemented)
 - `src/models/analysis/files.py` - File metadata and binary file representation models (implemented)
 - `src/models/api/analysis.py` - API analysis request/response models (implemented)
-- `src/models/api/jobs.py` - Job management API models (implemented)
-- `src/models/api/auth.py` - Authentication and rate limiting models (implemented)
+- `src/models/api/jobs.py` - Job management and decompilation request models (implemented)
 - `src/core/config.py` - Application configuration and environment settings (implemented with enhanced validation)
 - `src/core/exceptions.py` - Custom exception hierarchy for error handling (implemented)
 - `src/core/utils.py` - File validation, hash generation, sanitization functions (implemented with Magika integration)
@@ -52,11 +51,11 @@ This task list **originally** implemented the Phase 1 Integrated System as defin
 - `src/analysis/workers/health_checker.py` - Worker health monitoring
 - `src/api/main.py` - FastAPI application setup and configuration
 - `src/api/routes/health.py` - Health check and system status endpoints
-- `src/api/routes/auth.py` - Authentication and API key validation endpoints
+- `src/api/routes/decompilation.py` - Binary decompilation endpoints (open access)
 - `src/api/routes/upload.py` - File upload and pre-signed URL endpoints
 - `src/api/routes/analysis.py` - Analysis submission and retrieval endpoints
 - `src/api/routes/jobs.py` - Job management and status endpoints
-- `src/api/middleware/auth.py` - Authentication middleware
+- `src/api/middleware/logging.py` - Request logging and monitoring middleware
 - `src/api/middleware/rate_limit.py` - Rate limiting middleware
 - `src/api/middleware/logging.py` - Request/response logging middleware
 - `src/api/middleware/cors.py` - CORS handling middleware

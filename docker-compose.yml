@@ -16,6 +16,10 @@ services:
       POSTGRES_DB: bin2nlp
       POSTGRES_USER: bin2nlp
       POSTGRES_PASSWORD: bin2nlp_password
+      # Use MD5 authentication instead of SCRAM-SHA-256 for compatibility
+      POSTGRES_PASSWORD_ENCRYPTION: md5
+      # Allow connections from Docker network
+      POSTGRES_HOST_AUTH_METHOD: md5
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
@@ -114,10 +118,7 @@ volumes:
       o: bind
       device: ./data/storage
 
-# Network for service communication
+# Use default Docker bridge network
 networks:
   default:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16

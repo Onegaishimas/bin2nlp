@@ -40,9 +40,9 @@ def get_database_url(settings: Optional[Settings] = None) -> str:
     
     # Build connection URL
     if db_password:
-        return f"postgresql+asyncpg://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+        return f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
     else:
-        return f"postgresql+asyncpg://{db_user}@{db_host}:{db_port}/{db_name}"
+        return f"postgresql://{db_user}@{db_host}:{db_port}/{db_name}"
 
 
 async def init_database(settings: Optional[Settings] = None) -> databases.Database:
@@ -63,10 +63,13 @@ async def init_database(settings: Optional[Settings] = None) -> databases.Databa
     settings = settings or get_settings()
     database_url = get_database_url(settings)
     
+    # SQLAlchemy needs the +asyncpg driver specification
+    sqlalchemy_url = database_url.replace("postgresql://", "postgresql+asyncpg://")
+    
     try:
         # Create async engine for SQLAlchemy operations
         _engine = create_async_engine(
-            database_url,
+            sqlalchemy_url,
             echo=getattr(settings, 'database_echo', False),
             pool_size=getattr(settings, 'database_pool_size', 10),
             max_overflow=getattr(settings, 'database_max_overflow', 20),
