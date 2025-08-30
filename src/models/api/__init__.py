@@ -10,10 +10,7 @@ from .jobs import (
     JobCreationRequest, JobStatusResponse, JobListResponse,
     JobActionRequest, JobActionResponse
 )
-from .auth import (
-    APIKeyRequest, APIKeyResponse, RateLimitInfo,
-    ErrorResponse, AuthenticationStatus
-)
+# Authentication models removed - system now uses open access
 
 __all__ = [
     # Job API models
@@ -22,11 +19,4 @@ __all__ = [
     "JobListResponse", 
     "JobActionRequest",
     "JobActionResponse",
-    
-    # Auth API models
-    "APIKeyRequest",
-    "APIKeyResponse",
-    "RateLimitInfo",
-    "ErrorResponse",
-    "AuthenticationStatus",
 ]

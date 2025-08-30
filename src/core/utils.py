@@ -45,12 +45,10 @@ EXECUTABLE_CONTENT_TYPES = {
     'pe', 'elf', 'macho', 'dex', 'com', 'msdos', 'executable'
 }
 
-# Security patterns for sanitization
+# Security patterns for sanitization (API key patterns removed for open access)
 SENSITIVE_PATTERNS = [
     r'(?i)password\s*[:=]\s*[^\s]+',
-    r'(?i)api[_-]?key\s*[:=]\s*[a-zA-Z0-9_\-]+',
     r'(?i)secret\s*[:=]\s*[^\s]+',
-    r'(?i)token\s*[:=]\s*[a-zA-Z0-9_\-\.]+',
     r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',  # Email
     r'\b(?:\d{1,3}\.){3}\d{1,3}\b',  # IP addresses
     r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b'  # UUIDs
@@ -382,21 +380,7 @@ class HashGenerator:
         hasher.update(content)
         return hasher.hexdigest()
     
-    @staticmethod
-    def generate_api_key(length: int = 32, prefix: str = 'ak_') -> str:
-        """
-        Generate secure API key.
-        
-        Args:
-            length: Length of random part
-            prefix: Prefix for the API key
-            
-        Returns:
-            Secure random API key
-        """
-        alphabet = string.ascii_letters + string.digits
-        random_part = ''.join(secrets.choice(alphabet) for _ in range(length))
-        return f"{prefix}{random_part}"
+# API key generation removed - open access system
     
     @staticmethod
     def generate_correlation_id() -> str:
@@ -445,7 +429,7 @@ class DataSanitizer:
             Sanitized data
         """
         if sensitive_fields is None:
-            sensitive_fields = ['password', 'api_key', 'token', 'secret', 'auth']
+            sensitive_fields = ['password', 'secret']  # Removed auth-related fields for open access
         
         if isinstance(data, dict):
             sanitized = {}

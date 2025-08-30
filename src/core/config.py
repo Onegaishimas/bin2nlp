@@ -240,70 +240,7 @@ class APISettings(BaseSettings):
     )
 
 
-class SecuritySettings(BaseSettings):
-    """Security and authentication configuration settings."""
-    
-    model_config = SettingsConfigDict(
-        env_prefix="SECURITY_",
-        case_sensitive=False
-    )
-    
-    api_key_length: int = Field(
-        default=32,
-        ge=16,
-        le=64,
-        description="API key length in characters"
-    )
-    
-    api_key_prefix: str = Field(
-        default="ak_",
-        min_length=1,
-        max_length=10,
-        description="API key prefix"
-    )
-    
-    default_rate_limit_per_minute: int = Field(
-        default=60,
-        ge=1,
-        le=10000,
-        description="Default rate limit per minute"
-    )
-    
-    default_rate_limit_per_day: int = Field(
-        default=86400,  # 60 per minute * 60 minutes * 24 hours
-        ge=100,
-        le=1000000,
-        description="Default rate limit per day"
-    )
-    
-    max_api_keys_per_user: int = Field(
-        default=10,
-        ge=1,
-        le=100,
-        description="Maximum API keys per user"
-    )
-    
-    api_key_expiry_days: int = Field(
-        default=90,
-        ge=1,
-        le=3650,
-        description="Default API key expiry in days"
-    )
-    
-    enforce_https: bool = Field(
-        default=False,
-        description="Enforce HTTPS for API access"
-    )
-    
-    trusted_proxies: List[str] = Field(
-        default_factory=list,
-        description="List of trusted proxy IP addresses"
-    )
-    
-    require_api_keys: bool = Field(
-        default=True,
-        description="Require API key authentication for protected endpoints"
-    )
+# SecuritySettings class removed - open access system
 
 
 class StorageSettings(BaseSettings):
@@ -739,10 +676,7 @@ class Settings(BaseSettings):
         description="API server configuration"
     )
     
-    security: SecuritySettings = Field(
-        default_factory=SecuritySettings,
-        description="Security configuration"
-    )
+# Security configuration removed - open access system
     
     storage: StorageSettings = Field(
         default_factory=StorageSettings,
@@ -794,40 +728,7 @@ class Settings(BaseSettings):
         """Get worker memory limit in bytes."""
         return self.analysis.worker_memory_limit_mb * 1024 * 1024
     
-    def get_rate_limits(self) -> Dict[str, Dict[str, int]]:
-        """Get rate limit configuration by tier."""
-        return {
-            "basic": {
-                "per_minute": 10,
-                "per_hour": 600,
-                "per_day": 14400,
-                "burst": 5
-            },
-            "standard": {
-                "per_minute": self.security.default_rate_limit_per_minute,
-                "per_hour": self.security.default_rate_limit_per_minute * 60,
-                "per_day": self.security.default_rate_limit_per_day,
-                "burst": 20
-            },
-            "premium": {
-                "per_minute": 300,
-                "per_hour": 18000,
-                "per_day": 432000,
-                "burst": 50
-            },
-            "enterprise": {
-                "per_minute": 1000,
-                "per_hour": 60000,
-                "per_day": 1440000,
-                "burst": 100
-            },
-            "unlimited": {
-                "per_minute": 999999,
-                "per_hour": 999999,
-                "per_day": 999999,
-                "burst": 999999
-            }
-        }
+# Rate limiting methods removed - open access system
     
     def get_analysis_timeouts(self) -> Dict[str, int]:
         """Get analysis timeout configuration by depth."""
@@ -954,14 +855,7 @@ API_CORS_ORIGINS=*
 API_DOCS_URL=/docs
 API_REDOC_URL=/redoc
 
-# Security Settings
-SECURITY_API_KEY_LENGTH=32
-SECURITY_API_KEY_PREFIX=ak_
-SECURITY_DEFAULT_RATE_LIMIT_PER_MINUTE=60
-SECURITY_DEFAULT_RATE_LIMIT_PER_DAY=10000
-SECURITY_MAX_API_KEYS_PER_USER=10
-SECURITY_API_KEY_EXPIRY_DAYS=90
-SECURITY_ENFORCE_HTTPS=false
+# Security Settings removed - open access system
 
 # File Storage Settings
 STORAGE_BASE_PATH=/var/lib/app/data
@@ -1085,22 +979,6 @@ def validate_configuration_consistency() -> Tuple[bool, List[str]]:
         if settings.api.port == settings.database.port:
             errors.append("API and PostgreSQL ports cannot be the same")
         
-        # Rate limit validation
-        rate_limits = settings.get_rate_limits()
-        for tier, limits in rate_limits.items():
-            if tier == "unlimited":
-                continue
-            
-            # Check minute/hour consistency
-            if limits["per_minute"] * 60 > limits["per_hour"]:
-                errors.append(f"Rate limit inconsistency in {tier} tier: "
-                            f"per_minute ({limits['per_minute']}) * 60 > per_hour ({limits['per_hour']})")
-            
-            # Check hour/day consistency  
-            if limits["per_hour"] * 24 > limits["per_day"]:
-                errors.append(f"Rate limit inconsistency in {tier} tier: "
-                            f"per_hour ({limits['per_hour']}) * 24 > per_day ({limits['per_day']})")
-        
         # File size validation
         max_request_size_mb = settings.api.max_request_size / (1024 * 1024)
         if max_request_size_mb < settings.analysis.max_file_size_mb:
@@ -1110,9 +988,7 @@ def validate_configuration_consistency() -> Tuple[bool, List[str]]:
         if settings.is_production and "*" in settings.api.cors_origins:
             errors.append("Wildcard CORS origins not recommended for production")
         
-        # HTTPS validation for production
-        if settings.is_production and not settings.security.enforce_https:
-            errors.append("HTTPS should be enforced in production")
+        # Note: HTTPS and rate limiting validation removed - open access system
         
     except Exception as e:
         errors.append(f"Configuration validation failed: {e}")
@@ -1172,8 +1048,7 @@ def detect_configuration_issues() -> Dict[str, List[str]]:
             if settings.debug:
                 issues["warnings"].append("Debug mode is enabled - disable in production")
             
-            if not settings.security.enforce_https:
-                issues["warnings"].append("HTTPS not enforced - ensure this is enabled in production")
+            # Note: HTTPS enforcement removed for open access system
     
     except Exception as e:
         issues["critical"].append(f"Failed to analyze configuration: {e}")
@@ -1247,7 +1122,7 @@ def create_configuration_report() -> str:
         f"Worker Memory Limit: {settings.analysis.worker_memory_limit_mb}MB",
         f"Max File Size: {settings.analysis.max_file_size_mb}MB",
         f"Storage TTL: {settings.storage.cache_ttl_hours}h",
-        f"Rate Limit: {settings.security.default_rate_limit_per_minute}/min",
+        "Rate Limiting: Disabled (open access)",
         ""
     ])
     

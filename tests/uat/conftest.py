@@ -43,33 +43,7 @@ def client():
     """API client fixture"""
     return APIClient()
 
-@pytest.fixture(scope="session")
-def admin_api_key(client):
-    """Create admin API key for testing"""
-    response = client.post("/api/v1/admin/dev/create-api-key?user_id=uat_admin")
-    if response.status_code != 200:
-        pytest.skip("Cannot create admin API key - server may not be in dev mode")
-    
-    return response.json()["api_key"]
-
-@pytest.fixture(scope="session")
-def admin_headers(admin_api_key):
-    """Admin authorization headers"""
-    return {"Authorization": f"Bearer {admin_api_key}"}
-
-@pytest.fixture(scope="session") 
-def standard_api_key(client):
-    """Create standard API key for testing"""
-    response = client.post("/api/v1/admin/dev/create-api-key?user_id=uat_user")
-    if response.status_code != 200:
-        pytest.skip("Cannot create standard API key")
-    
-    return response.json()["api_key"]
-
-@pytest.fixture(scope="session")
-def standard_headers(standard_api_key):
-    """Standard user authorization headers"""
-    return {"Authorization": f"Bearer {standard_api_key}"}
+# API key fixtures removed - open access system
 
 @pytest.fixture
 def test_binary_ssh_keygen():
