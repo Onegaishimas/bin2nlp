@@ -416,11 +416,17 @@ class DecompilationEngine:
                     assembly_code = None
                     if self.config.include_assembly_code and size > 0:
                         try:
+                            logger.debug(f"Attempting to extract assembly code for function {name} at {address}")
                             assembly_dict = await r2.get_function_assembly(address)
+                            logger.debug(f"Assembly extraction result for {address}: {assembly_dict is not None}")
                             # Extract the assembly string from the dictionary
                             assembly_code = assembly_dict.get("assembly", "") if assembly_dict else None
-                        except Exception:
-                            pass  # Skip assembly if it fails
+                            if assembly_code:
+                                logger.info(f"Successfully extracted {len(assembly_code)} characters of assembly code for function {name}")
+                            else:
+                                logger.warning(f"Assembly code extraction returned empty result for function {name} at {address}")
+                        except Exception as e:
+                            logger.error(f"Failed to extract assembly code for function {name} at {address}: {e}", exc_info=True)
                     
                     # Get cross-references (calls) - simplified for now
                     calls_to = []

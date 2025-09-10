@@ -6,6 +6,7 @@ import asyncio
 import json
 import time
 import uuid
+import hashlib
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
@@ -19,6 +20,27 @@ from ..models.shared.enums import JobStatus
 from ..cache.base import FileStorageClient, get_file_storage_client
 from ..core.logging import get_logger
 from ..core.exceptions import ProcessingException, CacheException
+
+
+def compute_file_hash(file_path: str) -> str:
+    """
+    Compute SHA256 hash of a file.
+    
+    Args:
+        file_path: Path to the file
+        
+    Returns:
+        SHA256 hash as hex string
+    """
+    hash_sha256 = hashlib.sha256()
+    try:
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_sha256.update(chunk)
+        return hash_sha256.hexdigest()
+    except Exception as e:
+        # Fallback to a hash of the filename if file reading fails
+        return hashlib.sha256(file_path.encode()).hexdigest()
 
 
 class JobQueue:
@@ -71,9 +93,12 @@ class JobQueue:
             if priority not in [p for p in JobPriority]:
                 raise ProcessingException(f"Invalid priority: {priority}")
             
+            # Compute proper file hash
+            file_hash = compute_file_hash(file_reference)
+            
             # Create job instance
             job = Job(
-                file_hash=file_reference,  # Using file_reference as hash for now
+                file_hash=file_hash,
                 filename=filename,
                 file_reference=file_reference,
                 analysis_config=analysis_config,

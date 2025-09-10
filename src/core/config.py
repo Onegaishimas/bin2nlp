@@ -405,6 +405,17 @@ class LLMSettings(BaseSettings):
         description="Default Gemini model"
     )
     
+    # Ollama Configuration
+    ollama_base_url: Optional[str] = Field(
+        default="http://localhost:11434/v1",
+        description="Ollama API base URL"
+    )
+    
+    ollama_default_model: str = Field(
+        default="llama3.1:8b",
+        description="Default Ollama model"
+    )
+    
     # Common Provider Settings
     default_temperature: float = Field(
         default=0.1,
@@ -502,7 +513,7 @@ class LLMSettings(BaseSettings):
     @classmethod
     def validate_enabled_providers(cls, v: List[str]) -> List[str]:
         """Validate enabled providers list."""
-        valid_providers = {"openai", "anthropic", "gemini"}
+        valid_providers = {"openai", "anthropic", "gemini", "ollama"}
         validated = []
         
         for provider in v:
@@ -521,7 +532,7 @@ class LLMSettings(BaseSettings):
     @classmethod
     def validate_default_provider(cls, v: str) -> str:
         """Validate default provider."""
-        valid_providers = {"openai", "anthropic", "gemini"}
+        valid_providers = {"openai", "anthropic", "gemini", "ollama"}
         v = v.lower().strip()
         if v not in valid_providers:
             raise ValueError(f"Invalid default provider: {v}. Valid providers: {valid_providers}")
@@ -603,6 +614,21 @@ class LLMSettings(BaseSettings):
                 "monthly_spend_limit": self.monthly_spend_limit_usd
             }
         
+        elif provider_id == "ollama":
+            return {
+                "provider_id": "ollama",
+                "api_key": "",  # Ollama doesn't require API key
+                "base_url": self.ollama_base_url,
+                "default_model": self.ollama_default_model,
+                "temperature": self.default_temperature,
+                "max_tokens": self.default_max_tokens,
+                "timeout_seconds": self.request_timeout_seconds,
+                "requests_per_minute": self.requests_per_minute,
+                "tokens_per_minute": self.tokens_per_minute,
+                "daily_spend_limit": 0.0,  # Free local inference
+                "monthly_spend_limit": 0.0  # Free local inference
+            }
+        
         else:
             raise ValueError(f"Unknown provider: {provider_id}")
     
@@ -624,6 +650,8 @@ class LLMSettings(BaseSettings):
                 validation_results[provider_id] = self.anthropic_api_key is not None
             elif provider_id == "gemini":
                 validation_results[provider_id] = self.gemini_api_key is not None
+            elif provider_id == "ollama":
+                validation_results[provider_id] = True  # Ollama doesn't require API key
         
         return validation_results
 
@@ -757,7 +785,7 @@ class Settings(BaseSettings):
         return config
 
 
-@lru_cache()
+###@lru_cache()  # Disabled for local development  # Disabled for local development  # Disabled for local development
 def get_settings() -> Settings:
     """
     Get application settings singleton.
@@ -873,7 +901,7 @@ LOG_BACKUP_COUNT=5
 LOG_ENABLE_CORRELATION_ID=true
 
 # LLM Provider Settings
-LLM_ENABLED_PROVIDERS=openai,anthropic,gemini
+LLM_ENABLED_PROVIDERS=openai,anthropic,gemini,ollama
 LLM_DEFAULT_PROVIDER=openai
 LLM_OPENAI_API_KEY=
 LLM_OPENAI_BASE_URL=

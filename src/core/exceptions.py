@@ -442,6 +442,9 @@ class UnsupportedFormatException(AnalysisException):
 FileFormatException = UnsupportedFormatException
 DecompilationException = AnalysisException
 
+# Alias for common ValidationError usage
+ValidationError = ValidationException
+
 
 class LLMProviderException(BinaryAnalysisException):
     """

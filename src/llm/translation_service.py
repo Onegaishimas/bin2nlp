@@ -36,38 +36,91 @@ class TranslationServiceOrchestrator:
         self.prompt_manager = ContextualPromptManager()
         # No persistent providers - create on demand from request parameters
     
-    def _create_provider_from_config(self, llm_config: Dict[str, Any]):
+    async def _create_provider_from_config(self, llm_config: Dict[str, Any]):
         """Create a provider instance from request configuration."""
-        provider_id = llm_config.get("llm_provider", "openai")
+        provider_id = llm_config.get("llm_provider")
         
-        # Get required parameters from request
-        api_key = llm_config.get("llm_api_key")
-        endpoint_url = llm_config.get("llm_endpoint_url")
-        model_name = llm_config.get("llm_model")
+        if not provider_id:
+            raise ValueError("No LLM provider specified")
         
-        # Fall back to environment defaults if not provided in request
-        if not api_key or not endpoint_url or not model_name:
-            from ..core.config import get_settings
-            import os
+        logger.info(f"Creating provider for ID: {provider_id}")
+        
+        # Check if this is a UUID (user provider) or a provider name
+        try:
+            import uuid
+            uuid.UUID(provider_id)
+            is_user_provider = True
+            logger.info(f"Detected user provider UUID: {provider_id}")
+        except ValueError:
+            is_user_provider = False
+            logger.info(f"Detected direct provider name: {provider_id}")
+        
+        if is_user_provider:
+            # This is a user provider UUID - look up the provider details
+            from ..repositories.user_llm_providers import user_llm_provider_repository
             
             try:
-                settings = get_settings()
-                api_key = api_key or (settings.llm.openai_api_key.get_secret_value() if settings.llm.openai_api_key else None)
-                endpoint_url = endpoint_url or settings.llm.openai_base_url
-                model_name = model_name or settings.llm.openai_default_model
-            except Exception:
-                # Fallback to environment variables
-                api_key = api_key or os.getenv("LLM_OPENAI_API_KEY")
-                endpoint_url = endpoint_url or os.getenv("LLM_OPENAI_BASE_URL")
-                model_name = model_name or os.getenv("LLM_OPENAI_DEFAULT_MODEL")
+                provider_uuid = uuid.UUID(provider_id)
+                user_provider = await user_llm_provider_repository.get_provider_by_id(provider_uuid)
+                
+                if not user_provider:
+                    raise ValueError(f"User provider not found: {provider_id}")
+                
+                if not user_provider.is_active:
+                    raise ValueError(f"User provider is not active: {provider_id}")
+                
+                # Extract provider details from user provider
+                provider_type_str = str(user_provider.provider_type).lower()
+                # Decrypt the API key using the repository method
+                api_key = await user_llm_provider_repository.get_decrypted_api_key(provider_uuid)
+                endpoint_url = user_provider.endpoint_url
+                model_name = llm_config.get("llm_model")  # Model comes from request (especially for Ollama)
+                
+                logger.info(f"Using user provider: {user_provider.name} (type: {provider_type_str})")
+                logger.info(f"DEBUG: Decrypted API key: {'<present>' if api_key else '<empty>'}, endpoint_url: {endpoint_url}")
+                logger.info(f"DEBUG: Raw API key length: {len(api_key) if api_key else 0}")
+                
+            except Exception as e:
+                logger.error(f"Failed to fetch user provider {provider_id}: {e}")
+                raise ValueError(f"Failed to load user provider: {e}")
+        else:
+            # Direct provider name - use request configuration
+            provider_type_str = provider_id.lower()
+            api_key = llm_config.get("llm_api_key")
+            endpoint_url = llm_config.get("llm_endpoint_url") 
+            model_name = llm_config.get("llm_model")
+            
+            # Fall back to environment defaults if not provided in request
+            if not api_key or not endpoint_url or not model_name:
+                from ..core.config import get_settings
+                import os
+                
+                try:
+                    settings = get_settings()
+                    api_key = api_key or (settings.llm.openai_api_key.get_secret_value() if settings.llm.openai_api_key else None)
+                    endpoint_url = endpoint_url or settings.llm.openai_base_url
+                    model_name = model_name or settings.llm.openai_default_model
+                except Exception:
+                    # Fallback to environment variables
+                    api_key = api_key or os.getenv("LLM_OPENAI_API_KEY")
+                    endpoint_url = endpoint_url or os.getenv("LLM_OPENAI_BASE_URL")
+                    model_name = model_name or os.getenv("LLM_OPENAI_DEFAULT_MODEL")
         
-        if not all([api_key, endpoint_url, model_name]):
-            raise ValueError(f"Missing required LLM configuration: api_key={bool(api_key)}, endpoint_url={bool(endpoint_url)}, model={bool(model_name)}")
+        # Validate required parameters
+        if not all([api_key, endpoint_url]):
+            missing = []
+            if not api_key: missing.append("api_key")
+            if not endpoint_url: missing.append("endpoint_url")
+            raise ValueError(f"Missing required LLM configuration: {', '.join(missing)}")
         
-        logger.info(f"Creating {provider_id} provider with endpoint: {endpoint_url}, model: {model_name}")
+        # For Ollama, model is optional and can be provided later
+        if provider_type_str != "ollama" and not model_name:
+            raise ValueError("Missing required model name for non-Ollama provider")
         
-        # Create provider configuration
-        if provider_id == "openai":
+        logger.info(f"Creating {provider_type_str} provider with endpoint: {endpoint_url}, model: {model_name}")
+        
+        # Create provider configuration based on type
+        if provider_type_str == "openai":
             config = LLMConfig(
                 provider_id=LLMProviderType.OPENAI,
                 api_key=api_key,
@@ -78,7 +131,7 @@ class TranslationServiceOrchestrator:
                 timeout_seconds=30
             )
             return OpenAIProvider(config)
-        elif provider_id == "anthropic":
+        elif provider_type_str == "anthropic":
             config = LLMConfig(
                 provider_id=LLMProviderType.ANTHROPIC,
                 api_key=api_key,
@@ -89,7 +142,7 @@ class TranslationServiceOrchestrator:
                 timeout_seconds=30
             )
             return AnthropicProvider(config)
-        elif provider_id == "gemini":
+        elif provider_type_str == "gemini":
             config = LLMConfig(
                 provider_id=LLMProviderType.GEMINI,
                 api_key=api_key,
@@ -100,8 +153,21 @@ class TranslationServiceOrchestrator:
                 timeout_seconds=30
             )
             return GeminiProvider(config)
+        elif provider_type_str == "ollama":
+            # Import and create Ollama provider
+            from .providers.ollama_provider import OllamaProvider
+            config = LLMConfig(
+                provider_id=LLMProviderType.OLLAMA,
+                api_key=api_key or "ollama-no-auth",  # Ollama doesn't need real API key
+                default_model=model_name or "phi4",
+                endpoint_url=endpoint_url,
+                max_tokens=4000,
+                temperature=0.1,
+                timeout_seconds=30
+            )
+            return OllamaProvider(config)
         else:
-            raise ValueError(f"Unsupported LLM provider: {provider_id}")
+            raise ValueError(f"Unsupported LLM provider type: {provider_type_str}")
     
     async def translate_decompilation_result(
         self,
@@ -138,7 +204,7 @@ class TranslationServiceOrchestrator:
             
             try:
                 # Create provider from request configuration
-                provider = self._create_provider_from_config(llm_config)
+                provider = await self._create_provider_from_config(llm_config)
                 await provider.initialize()
                 provider_id = llm_config.get("llm_provider")
                 
@@ -205,7 +271,7 @@ class TranslationServiceOrchestrator:
             except Exception as e:
                 logger.error(f"Translation failed: {e}")
                 increment_counter("llm_translation_failures", 1)
-                return decompilation_result
+                return decompilation_result, None
     
     def _prepare_translation_context(
         self,
@@ -239,14 +305,14 @@ class TranslationServiceOrchestrator:
     
     async def get_available_providers(self) -> List[str]:
         """Get list of supported LLM providers."""
-        return ["openai", "anthropic", "gemini"]
+        return ["openai", "anthropic", "gemini", "ollama"]
     
     async def health_check(self) -> Dict[str, Any]:
         """Check health of translation service (providers created on-demand)."""
         return {
             "status": "healthy",
             "message": "Translation service ready - providers created on-demand from requests",
-            "supported_providers": ["openai", "anthropic", "gemini"]
+            "supported_providers": ["openai", "anthropic", "gemini", "ollama"]
         }
 
 

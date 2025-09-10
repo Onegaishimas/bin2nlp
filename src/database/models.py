@@ -10,6 +10,7 @@ import json
 
 from pydantic import BaseModel, Field, validator
 from ..models.shared.enums import JobStatus
+from ..llm.base import LLMProviderType
 
 
 # Enums matching PostgreSQL types
@@ -255,6 +256,139 @@ class FileStorageEntry(BaseModel):
         json_encoders = {
             datetime: lambda v: v.isoformat()
         }
+
+
+class UserLLMProvider(BaseModel):
+    """User-configured LLM provider model."""
+    
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
+    name: str = Field(..., max_length=255, description="User-defined provider name")
+    provider_type: LLMProviderType = Field(..., description="Provider type (openai, anthropic, etc.)")
+    
+    # Encrypted credentials
+    encrypted_api_key: str = Field(..., description="Encrypted API key for secure storage")
+    endpoint_url: Optional[str] = Field(None, max_length=500, description="Custom endpoint URL (for ollama)")
+    
+    # Configuration and metadata
+    config_json: Dict[str, Any] = Field(default_factory=dict, description="Additional provider settings")
+    is_active: bool = Field(default=True, description="Whether provider is enabled")
+    
+    # Timestamps
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    class Config:
+        use_enum_values = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat(),
+            uuid.UUID: lambda v: str(v),
+            LLMProviderType: lambda v: v.value if hasattr(v, 'value') else str(v)
+        }
+    
+    @validator('provider_type', pre=True)
+    def parse_provider_type(cls, v):
+        from ..core.logging import get_logger
+        logger = get_logger(__name__)
+        
+        logger.info(
+            "DEBUG parse_provider_type validator called",
+            extra={
+                "input_value": v,
+                "input_type": type(v).__name__,
+                "is_string": isinstance(v, str)
+            }
+        )
+        
+        if isinstance(v, str):
+            try:
+                # Check if it's already an enum string representation (the bug)
+                if v.startswith('LLMProviderType.'):
+                    logger.error(
+                        "DEBUG Detected enum string representation - converting to value",
+                        extra={"input": v}
+                    )
+                    # Extract the actual enum value (e.g., "LLMProviderType.OLLAMA" -> "ollama")
+                    enum_name = v.split('.')[-1]  # Get "OLLAMA"
+                    enum_value = enum_name.lower()  # Convert to "ollama"
+                    converted = LLMProviderType(enum_value)
+                else:
+                    converted = LLMProviderType(v)
+                
+                logger.info(
+                    "DEBUG parse_provider_type conversion successful",
+                    extra={"converted": converted, "converted_value": str(converted), "actual_value": converted.value}
+                )
+                return converted
+            except (ValueError, Exception) as e:
+                logger.error(
+                    "DEBUG parse_provider_type conversion failed",
+                    extra={"error": str(e), "input_value": v}
+                )
+                # If conversion fails, return as-is and let normal validation handle it
+                return v
+        
+        logger.info("DEBUG parse_provider_type returning unchanged", extra={"value": v})
+        return v
+    
+    @validator('config_json', pre=True)
+    def parse_config_json(cls, v):
+        if isinstance(v, str):
+            return json.loads(v)
+        return v
+    
+    @validator('endpoint_url')
+    def validate_endpoint_url_for_ollama(cls, v, values):
+        """Validate that Ollama providers have endpoint URLs."""
+        from ..core.logging import get_logger
+        logger = get_logger(__name__)
+        
+        provider_type = values.get('provider_type')
+        logger.info(
+            "DEBUG validate_endpoint_url_for_ollama called",
+            extra={
+                "endpoint_url": v,
+                "provider_type": provider_type,
+                "provider_type_type": type(provider_type).__name__,
+                "values": values
+            }
+        )
+        
+        # Bulletproof comparison - handle both enum and string types
+        is_ollama = False
+        try:
+            if hasattr(provider_type, 'value'):
+                # It's an enum, use .value to get the actual string value
+                is_ollama = provider_type.value == 'ollama'
+                logger.info("DEBUG Using enum.value comparison", extra={"enum_value": provider_type.value})
+            elif isinstance(provider_type, str):
+                is_ollama = provider_type == 'ollama'
+                logger.info("DEBUG Using string comparison", extra={"string_value": provider_type})
+            else:
+                # Last resort, convert to string (but this should ideally not happen)
+                is_ollama = str(provider_type) == 'ollama'
+                logger.info("DEBUG Using str() conversion as fallback", extra={"converted_value": str(provider_type)})
+        except (AttributeError, Exception) as e:
+            logger.error(
+                "DEBUG Error in endpoint_url validation comparison",
+                extra={"error": str(e), "provider_type": provider_type}
+            )
+            is_ollama = str(provider_type) == 'ollama'
+        
+        logger.info("DEBUG is_ollama determined", extra={"is_ollama": is_ollama})
+        
+        if is_ollama and not v:
+            logger.error("DEBUG Validation failure: endpoint_url required for ollama")
+            raise ValueError('endpoint_url is required for ollama providers')
+        
+        logger.info("DEBUG endpoint_url validation passed")
+        return v
+    
+    @validator('name')
+    def validate_name(cls, v):
+        """Ensure provider name is not empty and properly formatted."""
+        if not v or not v.strip():
+            raise ValueError('Provider name cannot be empty')
+        return v.strip()
 
 
 # Query result models for complex operations

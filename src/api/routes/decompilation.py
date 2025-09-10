@@ -147,26 +147,35 @@ async def process_decompilation_job(job_id: str, file_path: str, analysis_config
             logger.info(f"No LLM provider configured for job {job_id}, skipping translation")
             logger.info(f"Analysis config keys: {list(analysis_config.keys())}")
         
-        # Store result (for now, we'll store in job metadata)
-        # In production, you might store large results in object storage
-        result_summary = {
+        # Store complete results including detailed decompilation data
+        # Convert the BasicDecompilationResult to dict to include all function details
+        complete_results = {
             "success": result.success,
             "function_count": len(result.functions),
             "import_count": len(result.imports), 
             "string_count": len(result.strings),
             "duration_seconds": result.duration_seconds,
-            "decompilation_id": result.decompilation_id
+            "decompilation_id": result.decompilation_id,
+            "metadata": result.metadata.model_dump() if result.metadata else {},
+            "functions": [func.model_dump() for func in result.functions],
+            "imports": [imp.model_dump() for imp in result.imports],
+            "strings": [string.model_dump() for string in result.strings],
+            "exports": result.exports,
+            "errors": result.errors,
+            "warnings": result.warnings
         }
         
         # Include LLM translation data if available
         if 'llm_translations' in locals() and llm_translations is not None:
             logger.info(f"Including LLM translations: {len(llm_translations.get('functions', []))} functions")
-            result_summary["llm_translations"] = llm_translations
+            complete_results["llm_translations"] = llm_translations
         else:
             logger.info("No LLM translations to include in result")
         
+        logger.info(f"Storing complete results for job {job_id}: {len(complete_results.get('functions', []))} functions with assembly code")
+        
         # Complete the job and store results
-        await job_queue.complete_job(job_id, "background-worker", result_summary)
+        await job_queue.complete_job(job_id, "background-worker", complete_results)
         
         logger.info(f"Completed decompilation job {job_id}")
         
@@ -322,9 +331,11 @@ async def get_decompilation_result(
     # If job is completed, try to get results from database/storage
     if "completed" in status_str:
         try:
+            # Use the database JobQueue instead of cache JobQueue for result retrieval
             from ...database.operations import JobQueue as DatabaseJobQueue
             db_queue = DatabaseJobQueue()
             result_data = await db_queue.get_job_result(job_id)
+            logger.info(f"Retrieved result data for job {job_id}: {result_data is not None}")
         except Exception as e:
             logger.error(f"Failed to retrieve result data for job {job_id}: {e}")
             response["message"] = "Decompilation completed but results retrieval failed"
@@ -332,7 +343,9 @@ async def get_decompilation_result(
             if result_data:
                 response["results"] = result_data
                 response["message"] = "Decompilation completed successfully"
+                logger.info(f"Successfully included results for job {job_id}")
             else:
+                logger.warning(f"No result data found for completed job {job_id}")
                 response["message"] = "Decompilation completed but results not found"
     elif "failed" in status_str:
         response["message"] = f"Decompilation failed: {progress.error_message or 'Unknown error'}"

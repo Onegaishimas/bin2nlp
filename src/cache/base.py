@@ -46,9 +46,9 @@ class FileStorageClient:
         self.logger = get_logger(__name__)
         
         # Storage configuration
-        self.base_path = Path(getattr(self.settings, 'storage_base_path', '/var/lib/app/data'))
-        self.default_ttl_hours = getattr(self.settings, 'storage_cache_ttl_hours', 24)
-        self.max_file_size_mb = getattr(self.settings, 'storage_max_file_size_mb', 100)
+        self.base_path = Path(self.settings.storage.base_path)
+        self.default_ttl_hours = self.settings.storage.cache_ttl_hours
+        self.max_file_size_mb = self.settings.storage.max_file_size_mb
         
         # Create base directory
         self.base_path.mkdir(parents=True, exist_ok=True)

@@ -19,7 +19,7 @@ from ..core.config import get_settings
 from ..core.exceptions import BinaryAnalysisException
 from ..core.logging import configure_logging, get_logger
 from ..core.dashboards import run_alert_checks
-from .routes import decompilation, health, llm_providers, admin, dashboard
+from .routes import decompilation, health, llm_providers, admin, dashboard, user_llm_providers
 from .middleware import (
     ErrorHandlingMiddleware,
     RequestLoggingMiddleware
@@ -234,6 +234,13 @@ def create_app() -> FastAPI:
         tags=["llm-providers"]
     )
     
+    # User-configurable LLM providers
+    app.include_router(
+        user_llm_providers.router,
+        prefix="/api/v1",
+        tags=["user-llm-providers"]
+    )
+    
     app.include_router(
         admin.router,
         prefix="/api/v1",
@@ -258,23 +265,33 @@ def create_app() -> FastAPI:
     @app.exception_handler(BinaryAnalysisException)
     async def binary_analysis_exception_handler(request, exc: BinaryAnalysisException):
         """Handle custom binary analysis exceptions."""
-        return HTTPException(
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
             status_code=400,
-            detail={
-                "error": "binary_analysis_error",
-                "message": str(exc),
-                "error_type": exc.__class__.__name__
+            content={
+                "success": False,
+                "error": {
+                    "type": "binary_analysis_error",
+                    "message": str(exc),
+                    "error_type": exc.__class__.__name__,
+                    "status_code": 400
+                }
             }
         )
     
     @app.exception_handler(ValueError)
     async def value_error_handler(request, exc: ValueError):
         """Handle validation errors."""
-        return HTTPException(
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
             status_code=422,
-            detail={
-                "error": "validation_error",
-                "message": str(exc)
+            content={
+                "success": False,
+                "error": {
+                    "type": "validation_error",
+                    "message": str(exc),
+                    "status_code": 422
+                }
             }
         )
     

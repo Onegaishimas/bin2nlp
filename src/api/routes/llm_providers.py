@@ -75,6 +75,20 @@ async def get_llm_factory() -> LLMProviderFactory:
         factory.add_provider(gemini_config)
         logger.info("Added Gemini provider")
     
+    # Ollama Provider (Local - no API key required, always enabled if in enabled_providers)
+    if "ollama" in settings.llm.enabled_providers:
+        ollama_config = LLMConfig(
+            provider_id=LLMProviderType.OLLAMA,
+            api_key="",  # Ollama doesn't require API key
+            default_model=settings.llm.ollama_default_model or "llama3.1:8b",
+            endpoint_url=settings.llm.ollama_base_url or "http://localhost:11434/v1",
+            max_tokens=settings.llm.default_max_tokens or 4000,
+            temperature=settings.llm.default_temperature or 0.1,
+            timeout_seconds=settings.llm.request_timeout_seconds or 30
+        )
+        factory.add_provider(ollama_config)
+        logger.info(f"Added Ollama provider with endpoint: {settings.llm.ollama_base_url or 'http://localhost:11434/v1'}")
+    
     await factory.initialize()
     _factory_instance = factory
     logger.info(f"LLM factory initialized with {len(factory.provider_configs)} providers")
@@ -115,14 +129,16 @@ async def list_llm_providers(
             available_models = {
                 "openai": ["gpt-4", "gpt-4-turbo-preview", "gpt-3.5-turbo"],
                 "anthropic": ["claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-3-haiku-20240307"],
-                "gemini": ["gemini-pro", "gemini-pro-vision", "gemini-flash"]
+                "gemini": ["gemini-pro", "gemini-pro-vision", "gemini-flash"],
+                "ollama": ["llama3.1:8b", "codellama:7b", "llama3.2:3b", "mistral:7b"]
             }.get(provider_id, [])
             
             # Get approximate costs (per 1K tokens)
             cost_estimates = {
                 "openai": 0.03,     # GPT-4 approximate
                 "anthropic": 0.015,  # Claude-3 Sonnet approximate  
-                "gemini": 0.0005    # Gemini Pro approximate
+                "gemini": 0.0005,    # Gemini Pro approximate
+                "ollama": 0.0       # Free local inference
             }.get(provider_id, None)
             
             # Calculate health score
@@ -135,7 +151,8 @@ async def list_llm_providers(
                 name={
                     "openai": "OpenAI GPT",
                     "anthropic": "Anthropic Claude",
-                    "gemini": "Google Gemini"
+                    "gemini": "Google Gemini",
+                    "ollama": "Ollama (Local)"
                 }.get(provider_id, provider_id.title()),
                 status="healthy" if is_healthy else "unhealthy",
                 available_models=available_models,
@@ -154,7 +171,8 @@ async def list_llm_providers(
                 (pid, {
                     "openai": 0.03,
                     "anthropic": 0.015,
-                    "gemini": 0.0005
+                    "gemini": 0.0005,
+                    "ollama": 0.0
                 }.get(pid, 999))
                 for pid in healthy_providers
             ]
@@ -202,7 +220,8 @@ async def get_llm_provider_details(
             "name": {
                 "openai": "OpenAI GPT",
                 "anthropic": "Anthropic Claude", 
-                "gemini": "Google Gemini"
+                "gemini": "Google Gemini",
+                "ollama": "Ollama (Local)"
             }.get(provider_id, provider_id.title()),
             
             "status": {
@@ -233,7 +252,8 @@ async def get_llm_provider_details(
                 "max_context_tokens": {
                     "openai": 128000,      # GPT-4 Turbo
                     "anthropic": 200000,   # Claude-3
-                    "gemini": 1000000      # Gemini Pro
+                    "gemini": 1000000,     # Gemini Pro
+                    "ollama": 32768        # Llama models typical context
                 }.get(provider_id, 8192),
                 
                 "supports_streaming": True,
@@ -256,6 +276,12 @@ async def get_llm_provider_details(
                     {"id": "gemini-pro", "name": "Gemini Pro", "cost_per_1k_tokens": 0.0005},
                     {"id": "gemini-pro-vision", "name": "Gemini Pro Vision", "cost_per_1k_tokens": 0.0025},
                     {"id": "gemini-flash", "name": "Gemini Flash", "cost_per_1k_tokens": 0.00015}
+                ],
+                "ollama": [
+                    {"id": "llama3.1:8b", "name": "Llama 3.1 8B", "cost_per_1k_tokens": 0.0},
+                    {"id": "codellama:7b", "name": "Code Llama 7B", "cost_per_1k_tokens": 0.0},
+                    {"id": "llama3.2:3b", "name": "Llama 3.2 3B", "cost_per_1k_tokens": 0.0},
+                    {"id": "mistral:7b", "name": "Mistral 7B", "cost_per_1k_tokens": 0.0}
                 ]
             }.get(provider_id, []),
             
@@ -263,7 +289,8 @@ async def get_llm_provider_details(
                 "default_model": {
                     "openai": "gpt-4",
                     "anthropic": "claude-3-sonnet-20240229", 
-                    "gemini": "gemini-pro"
+                    "gemini": "gemini-pro",
+                    "ollama": "llama3.1:8b"
                 }.get(provider_id),
                 "default_temperature": 0.1,
                 "default_max_tokens": 2048,

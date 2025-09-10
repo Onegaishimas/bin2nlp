@@ -22,6 +22,7 @@ from ...core.logging import get_logger
 from .openai_provider import OpenAIProvider
 from .anthropic_provider import AnthropicProvider
 from .gemini_provider import GeminiProvider
+from .ollama_provider import OllamaProvider
 
 logger = get_logger(__name__)
 
@@ -96,7 +97,8 @@ class LLMProviderFactory:
     PROVIDER_CLASSES = {
         LLMProviderType.OPENAI: OpenAIProvider,
         LLMProviderType.ANTHROPIC: AnthropicProvider,
-        LLMProviderType.GEMINI: GeminiProvider
+        LLMProviderType.GEMINI: GeminiProvider,
+        LLMProviderType.OLLAMA: OllamaProvider
     }
     
     def __init__(self):
@@ -361,22 +363,26 @@ class LLMProviderFactory:
         bonuses = {
             TranslationOperationType.FUNCTION_TRANSLATION: {
                 LLMProviderType.ANTHROPIC: 0.1,  # Claude excels at detailed analysis
+                LLMProviderType.OLLAMA: 0.08,    # Good for code analysis, free local
                 LLMProviderType.OPENAI: 0.05,
                 LLMProviderType.GEMINI: 0.03
             },
             TranslationOperationType.IMPORT_EXPLANATION: {
                 LLMProviderType.ANTHROPIC: 0.08,  # Good at security analysis
                 LLMProviderType.OPENAI: 0.06,
+                LLMProviderType.OLLAMA: 0.05,     # Decent at explanations, free
                 LLMProviderType.GEMINI: 0.04
             },
             TranslationOperationType.STRING_INTERPRETATION: {
                 LLMProviderType.GEMINI: 0.1,     # Good at pattern recognition
                 LLMProviderType.OPENAI: 0.06,
+                LLMProviderType.OLLAMA: 0.05,    # Basic interpretation, free
                 LLMProviderType.ANTHROPIC: 0.04
             },
             TranslationOperationType.OVERALL_SUMMARY: {
                 LLMProviderType.ANTHROPIC: 0.12,  # Excellent at comprehensive analysis
                 LLMProviderType.OPENAI: 0.08,
+                LLMProviderType.OLLAMA: 0.06,     # Good summaries, free local
                 LLMProviderType.GEMINI: 0.06
             }
         }

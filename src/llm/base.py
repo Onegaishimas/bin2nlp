@@ -31,6 +31,7 @@ class LLMProviderType(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic" 
     GEMINI = "gemini"
+    OLLAMA = "ollama"
 
 
 class TranslationOperationType(str, Enum):

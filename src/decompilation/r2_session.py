@@ -605,7 +605,8 @@ class R2Session:
             function_info = info_result.output[0] if isinstance(info_result.output, list) else {}
         
         # Get disassembly with context
-        disasm_cmd = f"pdf @ {function_address}"
+        # Use pdr instead of pdf to handle cases where "Linear size differs too much from the bbsum"
+        disasm_cmd = f"pdr @ {function_address}"
         if not include_comments:
             disasm_cmd = f"pD {max_instructions} @ {function_address}"
             
