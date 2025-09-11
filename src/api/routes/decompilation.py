@@ -292,6 +292,40 @@ async def test_decompilation():
     return {"message": "Decompilation API is working"}
 
 
+@router.get("/decompile")
+async def list_decompilation_jobs(
+    job_queue: JobQueue = Depends(get_job_queue),
+    limit: Optional[int] = 100,
+    offset: Optional[int] = 0,
+    status: Optional[str] = None
+):
+    """
+    List all decompilation jobs with optional filtering and pagination.
+    
+    Args:
+        limit: Maximum number of jobs to return (default 100)
+        offset: Number of jobs to skip for pagination (default 0)
+        status: Filter by job status (optional)
+    
+    Returns:
+        List of job metadata with status and results summary
+    """
+    try:
+        jobs = await job_queue.list_jobs(limit=limit, offset=offset, status=status)
+        total_count = await job_queue.get_total_job_count()
+        
+        return {
+            "jobs": jobs,
+            "total": total_count,
+            "limit": limit,
+            "offset": offset,
+            "has_more": offset + len(jobs) < total_count
+        }
+    except Exception as e:
+        logger.error(f"Failed to list jobs: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve job list")
+
+
 @router.get("/decompile/{job_id}")
 async def get_decompilation_result(
     job_id: str,
@@ -357,7 +391,6 @@ async def get_decompilation_result(
     return response
 
 
-
 @router.delete("/decompile/{job_id}")
 async def cancel_decompilation_job(
     job_id: str, 
@@ -387,3 +420,40 @@ async def cancel_decompilation_job(
         return {"message": f"Job {job_id} cancelled successfully"}
     else:
         raise HTTPException(status_code=400, detail="Job could not be cancelled")
+
+
+@router.delete("/decompile/{job_id}/permanent")
+async def delete_decompilation_job(
+    job_id: str,
+    job_queue: JobQueue = Depends(get_job_queue)
+):
+    """
+    Permanently delete a decompilation job and all associated data.
+    
+    This removes:
+    - Job metadata from database
+    - Job results from storage
+    - Associated files and data
+    
+    WARNING: This action cannot be undone!
+    """
+    try:
+        # First check if job exists
+        progress = await job_queue.get_job_progress(job_id)
+        if not progress:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Delete job from database and storage
+        success = await job_queue.delete_job(job_id)
+        
+        if success:
+            logger.info(f"Job {job_id} permanently deleted")
+            return {"message": f"Job {job_id} permanently deleted"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete job")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete job {job_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to delete job")

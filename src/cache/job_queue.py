@@ -422,4 +422,137 @@ class JobQueue:
             )
             return 0
 
+    async def list_jobs(self, limit: int = 100, offset: int = 0, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        List jobs with optional filtering and pagination.
+        
+        Args:
+            limit: Maximum number of jobs to return
+            offset: Number of jobs to skip
+            status: Optional status filter
+            
+        Returns:
+            List of job metadata dictionaries
+        """
+        try:
+            from ..database.connection import get_database
+            
+            db = await get_database()
+            
+            # Build query with optional status filter
+            if status:
+                query = """
+                    SELECT id, status, priority, filename, created_at, started_at, 
+                           completed_at, progress_percentage, worker_id, error_message
+                    FROM jobs 
+                    WHERE status = :status
+                    ORDER BY created_at DESC 
+                    LIMIT :limit OFFSET :offset
+                """
+                rows = await db.fetch_all(query, {"status": status, "limit": limit, "offset": offset})
+            else:
+                query = """
+                    SELECT id, status, priority, filename, created_at, started_at, 
+                           completed_at, progress_percentage, worker_id, error_message
+                    FROM jobs 
+                    ORDER BY created_at DESC 
+                    LIMIT :limit OFFSET :offset
+                """
+                rows = await db.fetch_all(query, {"limit": limit, "offset": offset})
+            
+            jobs = []
+            for row in rows:
+                job_dict = dict(row)
+                # Rename id to job_id for API consistency
+                if 'id' in job_dict:
+                    job_dict['job_id'] = str(job_dict['id'])
+                    del job_dict['id']
+                # Convert datetime objects to ISO strings
+                for field in ['created_at', 'started_at', 'completed_at']:
+                    if job_dict[field]:
+                        job_dict[field] = job_dict[field].isoformat()
+                jobs.append(job_dict)
+                
+            return jobs
+            
+        except Exception as e:
+            self.logger.error(f"Failed to list jobs: {str(e)}")
+            return []
+
+    async def get_total_job_count(self) -> int:
+        """Get total number of jobs in the database."""
+        try:
+            from ..database.connection import get_database
+            
+            db = await get_database()
+            
+            result = await db.fetch_one("SELECT COUNT(*) as count FROM jobs")
+            return result["count"] if result else 0
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get job count: {str(e)}")
+            return 0
+
+    async def delete_job(self, job_id: str) -> bool:
+        """
+        Permanently delete a job and all associated data.
+        
+        This removes:
+        - Job metadata from database
+        - Job results from storage
+        - Associated files and data
+        
+        Args:
+            job_id: ID of job to delete
+            
+        Returns:
+            bool: True if deletion successful, False otherwise
+        """
+        try:
+            from ..database.connection import get_database
+            import shutil
+            import os
+            from ..core.config import get_settings
+            
+            db = await get_database()
+            settings = get_settings()
+            
+            # First get job info to know what to clean up
+            job_row = await db.fetch_one(
+                "SELECT file_reference, status FROM jobs WHERE id = :job_id", 
+                {"job_id": job_id}
+            )
+            
+            if not job_row:
+                return False
+                
+            # Delete job storage directory if it exists
+            storage_path = os.path.join(settings.storage.base_path, job_id[:2], job_id)
+            if os.path.exists(storage_path):
+                shutil.rmtree(storage_path, ignore_errors=True)
+                self.logger.info(f"Deleted storage for job {job_id}: {storage_path}")
+            
+            # Delete uploaded file if it exists
+            file_reference = job_row['file_reference']
+            if file_reference and os.path.exists(file_reference):
+                os.remove(file_reference)
+                self.logger.info(f"Deleted uploaded file for job {job_id}: {file_reference}")
+            
+            # Delete job from database
+            rows_deleted = await db.execute(
+                "DELETE FROM jobs WHERE id = :job_id", 
+                {"job_id": job_id}
+            )
+            
+            if rows_deleted and rows_deleted > 0:
+                self.logger.info(f"Job {job_id} permanently deleted from database")
+                return True
+            else:
+                self.logger.warning(f"Job {job_id} not found in database for deletion")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Failed to delete job {job_id}: {str(e)}")
+            return False
+
 

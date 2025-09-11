@@ -158,19 +158,6 @@ class OllamaProvider(LLMProvider):
             # Parse response into structured format
             result = self._parse_function_response(response, function_data)
             
-            # Calculate metrics
-            processing_time_ms = int((time.time() - start_time) * 1000)
-            tokens_used = self._estimate_tokens(prompt + str(response))
-            
-            # Create metadata
-            metadata = self._create_provider_metadata(
-                model=model,
-                tokens_used=tokens_used,
-                processing_time_ms=processing_time_ms,
-                cost_estimate=0.0  # Ollama is free
-            )
-            
-            result.provider_metadata = metadata
             increment_counter("ollama_function_translation_success")
             
             return result
@@ -482,15 +469,28 @@ Focus on high-level insights."""
         """Parse Ollama response into FunctionTranslation."""
         explanation = response.choices[0].message.content if response.choices else "Translation unavailable"
         
+        # Create provider metadata
+        provider_metadata = LLMProviderMetadata(
+            provider="ollama",
+            model=self.config.default_model,
+            tokens_used=self._estimate_tokens(explanation),
+            processing_time_ms=100,  # Approximate for local inference
+            api_version="v1",
+            cost_estimate=0.0,  # Free local inference
+            timestamp=datetime.utcnow()
+        )
+        
         return FunctionTranslation(
             function_name=function_data.get("name", "unknown"),
-            function_address=function_data.get("address", "unknown"),
-            natural_language_summary=explanation,
-            key_operations=[],  # Could enhance to parse these from response
-            variables_identified=[],
-            control_flow_description="",
-            security_implications="",
-            confidence_score=0.8  # Default confidence for local model
+            address=function_data.get("address", "0x0"),
+            size=function_data.get("size", 0),
+            assembly_code=function_data.get("assembly_code"),
+            natural_language_description=explanation,
+            parameters_explanation="",  # Optional field
+            return_value_explanation="",  # Optional field
+            security_analysis="",  # Optional field
+            confidence_score=0.8,  # Default confidence for local model
+            llm_provider=provider_metadata
         )
     
     def _parse_import_response(self, response: Any, import_data: Dict[str, Any]) -> ImportTranslation:
